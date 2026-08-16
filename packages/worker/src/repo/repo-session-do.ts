@@ -102,6 +102,11 @@ import {
 } from './publish-git-notes.ts'
 import { createIsomorphicGitFs } from './isomorphic-git-fs.ts'
 import {
+	isTransientArtifactsGitError,
+	runArtifactsGitWithRetry,
+	wrapArtifactsGitHttpError,
+} from './artifacts-git-retry.ts'
+import {
 	buildRepoLargeFileMessage,
 	maxRepoSourceFileBytes,
 	measureRepoSourceFileBytes,
@@ -266,6 +271,59 @@ class RepoSessionBase extends DurableObject<Env> {
 	readonly git = createGit(this.fileSystem, repoSessionWorkspacePrefix)
 
 	private initializedSessionId: string | null = null
+
+	/**
+	 * Clone an Artifacts remote with brief retries for transient HTTP 5xx /
+	 * 429 and isomorphic-git packfile corruption (KODY-CLOUDFLARE-55). Retries
+	 * always reset the DO workspace so a partial unpack cannot poison the next
+	 * attempt. Callers that already expect a clean tree (openSession / publish)
+	 * pass `resetBeforeFirstAttempt`.
+	 */
+	private async cloneArtifactsRepoWithRetry(input: {
+		remote: string
+		token: string
+		branch?: string | null
+		resetBeforeFirstAttempt?: boolean
+	}) {
+		let attempt = 0
+		try {
+			await runArtifactsGitWithRetry(async () => {
+				if (attempt > 0 || input.resetBeforeFirstAttempt) {
+					await this.resetWorkspace()
+				}
+				attempt += 1
+				await this.workspace.mkdir(repoSessionWorkspacePrefix, {
+					recursive: true,
+				})
+				await this.git.clone({
+					dir: repoSessionWorkspacePrefix,
+					...(input.branch
+						? {
+								branch: input.branch,
+								singleBranch: true,
+							}
+						: {}),
+					...buildGitCloneAuth({
+						remote: input.remote,
+						token: input.token,
+					}),
+				})
+			})
+		} catch (error) {
+			// Only wrap Artifacts-transient signatures (HTTP 5xx / packfile
+			// corruption). Bare Cloudflare opaque internals must stay unwrapped
+			// so repo_open_session can still match and retry with a fresh
+			// session id (KODY-CLOUDFLARE-4H).
+			if (isTransientArtifactsGitError(error)) {
+				throw wrapArtifactsGitHttpError({
+					operation: 'git clone',
+					remote: input.remote,
+					error,
+				})
+			}
+			throw error
+		}
+	}
 
 	// In-memory cache for the active DO instance. This serves as the primary
 	// fallback for follow-up RPC calls on the same sessionId so that even the
@@ -751,21 +809,10 @@ class RepoSessionBase extends DurableObject<Env> {
 		}
 		const hasCleanGitDir = await this.workspace.exists(gitConfigPath)
 		if (!hasCleanGitDir) {
-			await this.workspace.mkdir(repoSessionWorkspacePrefix, {
-				recursive: true,
-			})
-			await this.git.clone({
-				dir: repoSessionWorkspacePrefix,
-				...(input.sessionBranch
-					? {
-							branch: input.sessionBranch,
-							singleBranch: true,
-						}
-					: {}),
-				...buildGitCloneAuth({
-					remote: input.repoRemote,
-					token: input.repoToken,
-				}),
+			await this.cloneArtifactsRepoWithRetry({
+				remote: input.repoRemote,
+				token: input.repoToken,
+				branch: input.sessionBranch,
 			})
 		}
 		this.initializedSessionId = input.sessionId
@@ -1128,18 +1175,11 @@ class RepoSessionBase extends DurableObject<Env> {
 				)
 			}
 			const sessionBranch = buildSessionBranchName(input.sessionId)
-			await this.resetWorkspace()
-			await this.workspace.mkdir(repoSessionWorkspacePrefix, {
-				recursive: true,
-			})
-			await this.git.clone({
-				dir: repoSessionWorkspacePrefix,
+			await this.cloneArtifactsRepoWithRetry({
+				remote: sourceAccess.remote,
+				token: sourceAccess.token,
 				branch: sourceBranch,
-				singleBranch: true,
-				...buildGitCloneAuth({
-					remote: sourceAccess.remote,
-					token: sourceAccess.token,
-				}),
+				resetBeforeFirstAttempt: true,
 			})
 			await this.git.checkout({
 				dir: repoSessionWorkspacePrefix,
@@ -2634,19 +2674,12 @@ class RepoSessionBase extends DurableObject<Env> {
 			scope: 'read',
 		})
 		const targetBranch = sourceInfo?.defaultBranch ?? defaultSessionBranch
-		await this.resetWorkspace()
-		await this.workspace.mkdir(repoSessionWorkspacePrefix, {
-			recursive: true,
-		})
 		try {
-			await this.git.clone({
-				dir: repoSessionWorkspacePrefix,
+			await this.cloneArtifactsRepoWithRetry({
+				remote: sourceAccess.remote,
+				token: sourceAccess.token,
 				branch: targetBranch,
-				singleBranch: true,
-				...buildGitCloneAuth({
-					remote: sourceAccess.remote,
-					token: sourceAccess.token,
-				}),
+				resetBeforeFirstAttempt: true,
 			})
 			// Race protection without a second Artifacts REST HEAD resolve: the
 			// single-branch clone tip is the remote default-branch HEAD at clone
