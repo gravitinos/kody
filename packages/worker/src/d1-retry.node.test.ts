@@ -21,6 +21,16 @@ test('runD1WithRetry matches lock errors, retries them, and rethrows other failu
 	)
 	expect(
 		isRetryableD1LockError(
+			new Error('D1_ERROR: D1 DB is overloaded. Requests queued for too long.'),
+		),
+	).toBe(true)
+	expect(
+		isRetryableD1LockError(
+			new Error('D1 DB is overloaded. Requests queued for too long'),
+		),
+	).toBe(true)
+	expect(
+		isRetryableD1LockError(
 			new Error(
 				'D1_ERROR: internal error; reference = 0u3odos5iotccpol68ppc0eg',
 			),
@@ -37,6 +47,9 @@ test('runD1WithRetry matches lock errors, retries them, and rethrows other failu
 		isRetryableD1LockError(
 			new Error('Network connection lost while uploading...'),
 		),
+	).toBe(false)
+	expect(
+		isRetryableD1LockError(new Error('queue is overloaded while uploading...')),
 	).toBe(false)
 	expect(isRetryableD1LockError(new Error('internal error'))).toBe(false)
 	expect(
