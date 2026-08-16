@@ -95,6 +95,11 @@ import {
 	isWorkspaceSqliteTooBigMessage,
 } from './external-publish-clone.ts'
 import {
+	buildRepoSessionWorkspaceName,
+	measureRepoSessionWorkspaceBlobBytes,
+	purgeRepoSessionWorkspaceBlobs,
+} from './repo-session-blobs.ts'
+import {
 	assertPackagePrivateVisibilityChangeAllowed,
 	assertPackageSourceOverwriteAllowed,
 	assertPublishedPackageSourceRepoHead,
@@ -144,10 +149,6 @@ type CachedRepoSessionState = {
 }
 
 type RawGitPushInput = Parameters<typeof rawGit.push>[0]
-
-function buildRepoSessionWorkspaceName(sessionId: string) {
-	return `repo-session:${sessionId}`
-}
 
 function nowIso() {
 	return new Date().toISOString()
@@ -266,6 +267,7 @@ class RepoSessionBase extends DurableObject<Env> {
 	readonly workspace = new Workspace({
 		sql: this.ctx.storage.sql,
 		name: () => buildRepoSessionWorkspaceName(this.ctx.id.toString()),
+		r2: this.env.REPO_SESSION_BLOBS,
 	})
 
 	readonly fileSystem = new WorkspaceFileSystem(this.workspace)
@@ -348,7 +350,15 @@ class RepoSessionBase extends DurableObject<Env> {
 	>()
 
 	async getEstimatedBytes(): Promise<{ estimatedBytes: number }> {
-		return { estimatedBytes: this.ctx.storage.sql.databaseSize }
+		return { estimatedBytes: await this.readEstimatedWorkspaceBytes() }
+	}
+
+	private async readEstimatedWorkspaceBytes(): Promise<number> {
+		const r2Bytes = await measureRepoSessionWorkspaceBlobBytes({
+			blobs: this.env.REPO_SESSION_BLOBS,
+			durableObjectId: this.ctx.id.toString(),
+		})
+		return this.ctx.storage.sql.databaseSize + r2Bytes
 	}
 
 	private refreshStoredEstimate(sessionId: string, userId: string): void {
@@ -356,8 +366,15 @@ class RepoSessionBase extends DurableObject<Env> {
 			env: this.env,
 			userId,
 			storageId: repoSessionStorageBucketId(sessionId),
-			readEstimatedBytes: async () => this.ctx.storage.sql.databaseSize,
+			readEstimatedBytes: async () => this.readEstimatedWorkspaceBytes(),
 			waitUntil: (promise) => this.ctx.waitUntil(promise),
+		})
+	}
+
+	private async purgeWorkspaceBlobs(): Promise<void> {
+		await purgeRepoSessionWorkspaceBlobs({
+			blobs: this.env.REPO_SESSION_BLOBS,
+			durableObjectId: this.ctx.id.toString(),
 		})
 	}
 
@@ -1447,7 +1464,6 @@ class RepoSessionBase extends DurableObject<Env> {
 		})
 		if (!sessionRow) {
 			await this.clearCachedSessionState(input.sessionId)
-			await this.resetWorkspace()
 			await this.deleteStorageInventory(input.sessionId, input.userId)
 			return {
 				ok: true,
@@ -1469,6 +1485,7 @@ class RepoSessionBase extends DurableObject<Env> {
 		})
 		await this.clearCachedSessionState(input.sessionId)
 		await this.resetWorkspace()
+		await this.purgeWorkspaceBlobs()
 		await this.deleteStorageInventory(input.sessionId, sessionRow.user_id)
 		return {
 			ok: true,
@@ -1495,6 +1512,7 @@ class RepoSessionBase extends DurableObject<Env> {
 		this.inMemorySessionState.delete(input.sessionId)
 		this.initializedSessionId = null
 		await this.ctx.storage.deleteAll()
+		await this.purgeWorkspaceBlobs()
 		await this.deleteStorageInventory(input.sessionId, input.userId)
 		return {
 			ok: true as const,
@@ -1527,7 +1545,7 @@ class RepoSessionBase extends DurableObject<Env> {
 		}
 		const sessionBranch = sessionRow.session_branch
 		// Remote branch delete is best-effort. Cron selects the same expired
-		// rows every tick until the D1 session row is removed; a sticky remote
+		// rows every tick until the catalog row is removed; a sticky remote
 		// failure (for example a broken raw-git fs adapter) must not pin those
 		// rows forever and burn ~50 DO wakes each scheduled run.
 		let branchDeleted = false
@@ -1546,15 +1564,18 @@ class RepoSessionBase extends DurableObject<Env> {
 				}),
 			)
 		}
+		await this.clearCachedSessionState(input.sessionId)
+		await this.resetWorkspace().catch(() => {
+			// Workspace wipe is best-effort; prefix purge below is the R2 safety net.
+		})
+		// Purge before dropping the catalog row so a failed R2 delete keeps the
+		// row for cron retry. A missing row is not ownership proof — do not wipe.
+		await this.purgeWorkspaceBlobs()
 		await deleteRepoSession(this.env, {
 			userId: input.userId,
 			sessionId: input.sessionId,
 		})
 		await this.deleteStorageInventory(input.sessionId, sessionRow.user_id)
-		await this.clearCachedSessionState(input.sessionId)
-		await this.resetWorkspace().catch(() => {
-			// Session row is already gone; workspace wipe is best-effort.
-		})
 		console.info(
 			JSON.stringify({
 				message: branchDeleted
@@ -2672,8 +2693,8 @@ class RepoSessionBase extends DurableObject<Env> {
 		const targetBranch = sourceInfo?.defaultBranch ?? defaultSessionBranch
 		let publishClone: Awaited<ReturnType<typeof cloneExternalPublishWorkspace>>
 		try {
-			// In-memory clone: avoids DO SQL SQLITE_TOOBIG on packfiles
-			// (KODY-CLOUDFLARE-57). Do not route this through the SQL Workspace.
+			// In-memory clone: publish verification does not need the session
+			// Durable Object workspace (KODY-CLOUDFLARE-57).
 			publishClone = await cloneExternalPublishWorkspace({
 				remote: sourceAccess.remote,
 				token: sourceAccess.token,
