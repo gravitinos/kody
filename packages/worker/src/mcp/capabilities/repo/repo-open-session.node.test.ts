@@ -341,6 +341,59 @@ test('repo_open_session resumes an existing active session without enforcing the
 	expect(resumeRpc.openSession).not.toHaveBeenCalled()
 })
 
+test('repo_open_session mints a new session when conversation_id is omitted', async () => {
+	resetMocks()
+	const email = 'mint-new@example.com'
+	const userId = await createStableUserIdFromEmail(email)
+	const env = {
+		APP_DB: createEntitlementsDatabase({
+			users: [{ email, plan: 'pro', stable_user_id: userId }],
+		}),
+	} as Env
+	const ctx = {
+		env,
+		callerContext: createMcpCallerContext({
+			baseUrl: 'https://heykody.dev',
+			user: {
+				userId,
+				email,
+				displayName: 'Mint New',
+			},
+		}),
+	}
+	mockModule.getSavedPackageByKodyId.mockResolvedValueOnce(
+		createSavedPackageRow(userId),
+	)
+	mockModule.getEntitySourceByIdForUser.mockResolvedValueOnce(
+		createPackageSourceRow(userId),
+	)
+	const openRpc = createRepoRpc()
+	openRpc.openSession.mockResolvedValueOnce({
+		...createOpenSessionResult(),
+		id: 'session-minted',
+	})
+	mockModule.repoSessionRpc.mockReturnValue(openRpc)
+
+	const opened = await repoOpenSessionCapability.handler(
+		{
+			target: { kind: 'package', kody_id: 'triage-github-pr' },
+		},
+		ctx,
+	)
+
+	expect(opened.id).toBe('session-minted')
+	expect(mockModule.getActiveRepoSessionByConversation).not.toHaveBeenCalled()
+	expect(openRpc.getSessionInfo).not.toHaveBeenCalled()
+	expect(openRpc.openSession).toHaveBeenCalledWith(
+		expect.objectContaining({
+			userId,
+			sourceId: 'source-package-1',
+			conversationId: null,
+		}),
+	)
+	expect(mockModule.countActiveRepoSessions).toHaveBeenCalled()
+})
+
 test('repo_open_session allows below-max usage and denies at the max plan ceiling', async () => {
 	resetMocks()
 	const email = 'max@example.com'
