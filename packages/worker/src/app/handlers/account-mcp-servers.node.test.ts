@@ -136,6 +136,9 @@ vi.mock('#worker/mcp-client/settings-service.ts', () => ({
 		return {
 			clientOrigin,
 			callbackUrl: `${clientOrigin}/account/mcp-servers/oauth/callback`,
+			clientMetadataUrl: clientOrigin.startsWith('https:')
+				? `${clientOrigin}/oauth/client-metadata.json`
+				: null,
 		}
 	},
 }))
@@ -178,6 +181,7 @@ test('MCP servers API lists servers with live hub status', async () => {
 		username: 'test-user',
 		oauthClientOrigin: 'https://example.com',
 		oauthCallbackUrl: 'https://example.com/account/mcp-servers/oauth/callback',
+		oauthClientMetadataUrl: 'https://example.com/oauth/client-metadata.json',
 		servers: [
 			{
 				id: 'server-1',
@@ -348,7 +352,9 @@ test('MCP servers OAuth callback redirects with the auth outcome', async () => {
 		originFailureResponse.headers.get('Location') ?? '',
 	)
 	expect(originFailureLocation.searchParams.get('auth')).toBe('error')
-	expect(originFailureLocation.searchParams.get('reason')).toBeTruthy()
+	expect(originFailureLocation.searchParams.get('reason')).toContain(
+		'https://example.com/oauth/client-metadata.json',
+	)
 
 	mockModule.handleOAuthCallback.mockResolvedValueOnce({
 		serverId: 'server-1',

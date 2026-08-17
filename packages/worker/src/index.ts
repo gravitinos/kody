@@ -32,6 +32,7 @@ import {
 	mcpResourcePath,
 	protectedResourceMetadataPath,
 } from './mcp-auth.ts'
+import { handleMcpClientIdMetadataRequest } from './mcp-client/client-id-metadata.ts'
 import {
 	handlePackageInvocationApiRequest,
 	isPackageInvocationApiRequest,
@@ -469,6 +470,8 @@ function addOAuthDiscoveryCorsHeaders(
 	}
 	const headers = new Headers(response.headers)
 	headers.set('Access-Control-Allow-Origin', origin)
+	const vary = headers.get('Vary')
+	headers.set('Vary', vary ? `${vary}, Origin` : 'Origin')
 	headers.set('Access-Control-Allow-Methods', '*')
 	headers.set('Access-Control-Allow-Headers', 'Authorization, *')
 	headers.set('Access-Control-Max-Age', '86400')
@@ -583,6 +586,11 @@ const workerHandler = {
 		// MCP clients must use `<origin>/mcp` as the resource (RFC 8707) to match our
 		// token audience; otherwise authorize stores origin but the token request sends
 		// `/mcp` → invalid_target. Serve the same document as the `/mcp` metadata path.
+		const clientIdMetadataResponse = handleMcpClientIdMetadataRequest(request)
+		if (clientIdMetadataResponse) {
+			return addOAuthDiscoveryCorsHeaders(clientIdMetadataResponse, request)
+		}
+
 		if (url.pathname === protectedResourceMetadataPath) {
 			if (request.method === 'OPTIONS') {
 				return addOAuthDiscoveryCorsHeaders(
