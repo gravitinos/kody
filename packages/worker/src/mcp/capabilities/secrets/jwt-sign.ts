@@ -60,6 +60,8 @@ export const jwtSignCapability = defineDomainCapability(
 			'service account',
 			'oauth',
 			'rs256',
+			'eddsa',
+			'ed25519',
 		],
 		readOnly: true,
 		idempotent: true,
