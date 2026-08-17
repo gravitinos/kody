@@ -130,6 +130,11 @@ test('public route hardening rejects unauthenticated connector and maintenance a
 			secret: env.STATUS_INCIDENT_EVENT_SECRET,
 			notConfiguredMessage: 'Status incident events are not configured',
 		},
+		{
+			path: '/__maintenance/reencrypt-secrets',
+			secret: env.CAPABILITY_REINDEX_SECRET,
+			notConfiguredMessage: 'Secret re-encryption is not configured',
+		},
 	] as const
 
 	for (const route of registeredMaintenanceRoutes) {
