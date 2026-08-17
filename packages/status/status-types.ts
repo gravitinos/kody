@@ -24,6 +24,10 @@ export const statusComponentIds = statusComponents.map(
 	(component) => component.id,
 )
 
+export function isStatusComponentId(value: string): value is StatusComponentId {
+	return (statusComponentIds as ReadonlyArray<string>).includes(value)
+}
+
 export function statusComponentName(id: StatusComponentId): string {
 	const component = statusComponents.find((entry) => entry.id === id)
 	return component?.name ?? id

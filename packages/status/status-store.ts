@@ -11,6 +11,10 @@ import {
 	initialComponentProbeState,
 	type ComponentProbeState,
 } from './incidents.ts'
+import {
+	auditDbFalseAlarmPurgeMetaKey,
+	purgeAuditDbFalseAlarmData,
+} from './audit-false-alarm-purge.ts'
 import { jobsProbeOrigin, runAllProbes } from './probes.ts'
 import {
 	fetchRelevantProviderIncidents,
@@ -19,6 +23,7 @@ import {
 	type ProviderIncident,
 } from './provider-incidents.ts'
 import {
+	isStatusComponentId,
 	statusComponentName,
 	statusComponents,
 	type ComponentDayStat,
@@ -127,6 +132,18 @@ export class StatusStore extends DurableObject<StatusWorkerEnv> {
 				value TEXT NOT NULL
 			)
 		`)
+		this.maybePurgeAuditDbFalseAlarms()
+	}
+
+	private maybePurgeAuditDbFalseAlarms() {
+		if (this.getMeta(auditDbFalseAlarmPurgeMetaKey) === '1') return
+		purgeAuditDbFalseAlarmData((query, ...bindings) => {
+			this.ctx.storage.sql.exec(query, ...bindings)
+		})
+		this.setMeta(auditDbFalseAlarmPurgeMetaKey, '1')
+		if (this.listOpenIncidents().length === 0) {
+			this.setMeta('last_notified_state', 'ok')
+		}
 	}
 
 	private getMeta(key: string): string | null {
@@ -241,17 +258,23 @@ export class StatusStore extends DurableObject<StatusWorkerEnv> {
 	}
 
 	private listOpenIncidents(): Array<OpenIncidentSummary> {
+		// Rows for retired component ids stay in SQLite; they must not page.
 		return this.ctx.storage.sql
 			.exec<{ component: string; started_at: number; detail: string | null }>(
 				`SELECT component, started_at, detail FROM incidents
 				WHERE resolved_at IS NULL ORDER BY started_at ASC`,
 			)
 			.toArray()
-			.map((row) => ({
-				component: row.component as StatusComponentId,
-				startedAt: row.started_at,
-				detail: row.detail,
-			}))
+			.flatMap((row) => {
+				if (!isStatusComponentId(row.component)) return []
+				return [
+					{
+						component: row.component,
+						startedAt: row.started_at,
+						detail: row.detail,
+					},
+				]
+			})
 	}
 
 	private async maybeSendAlert(now: number) {
@@ -517,19 +540,21 @@ export class StatusStore extends DurableObject<StatusWorkerEnv> {
 				recentIncidentLimit,
 			)
 			.toArray()
-			.map((row) => {
-				const component = row.component as StatusComponentId
-				return {
-					id: row.id,
-					component,
-					componentName: statusComponentName(component),
-					startedAt: new Date(row.started_at).toISOString(),
-					resolvedAt:
-						row.resolved_at === null
-							? null
-							: new Date(row.resolved_at).toISOString(),
-					detail: row.detail,
-				}
+			.flatMap((row) => {
+				if (!isStatusComponentId(row.component)) return []
+				return [
+					{
+						id: row.id,
+						component: row.component,
+						componentName: statusComponentName(row.component),
+						startedAt: new Date(row.started_at).toISOString(),
+						resolvedAt:
+							row.resolved_at === null
+								? null
+								: new Date(row.resolved_at).toISOString(),
+						detail: row.detail,
+					},
+				]
 			})
 	}
 }
