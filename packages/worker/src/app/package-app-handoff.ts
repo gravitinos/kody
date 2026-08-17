@@ -3,6 +3,7 @@ import {
 	bytesToBase64Url,
 	utf8ToBase64Url,
 } from '@kody-internal/shared/base64.ts'
+import { remainingCookieMaxAgeSeconds } from '#app/package-app-session.ts'
 import { isStableUserId } from '#worker/user-id.ts'
 
 /**
@@ -28,11 +29,18 @@ const handoffReplayKeyPrefix = 'package-app-handoff:'
 // Cloudflare KV enforces a 60 second minimum expiration TTL, which matches the
 // token lifetime.
 const handoffReplayTtlSeconds = 60
+// Tokens minted before `sessExp` existed fall back to the previous 12 hour
+// package-app cookie lifetime for the rolling-deploy overlap.
+const missingSessionExpiryFallbackMs = 60 * 60 * 12 * 1000
 
 export type PackageAppHandoffClaims = {
 	stableUserId: string
 	username: string
 	kodyId: string
+}
+
+export type ConsumedPackageAppHandoff = PackageAppHandoffClaims & {
+	sessionExpiresAt: number
 }
 
 type StoredHandoffPayload = {
@@ -42,6 +50,7 @@ type StoredHandoffPayload = {
 	pkg: string
 	exp: number
 	jti: string
+	sessExp?: number
 }
 
 function isStoredHandoffPayload(value: unknown): value is StoredHandoffPayload {
@@ -57,7 +66,11 @@ function isStoredHandoffPayload(value: unknown): value is StoredHandoffPayload {
 		typeof record.exp === 'number' &&
 		Number.isFinite(record.exp) &&
 		typeof record.jti === 'string' &&
-		record.jti.length > 0
+		record.jti.length > 0 &&
+		(record.sessExp === undefined ||
+			(typeof record.sessExp === 'number' &&
+				Number.isFinite(record.sessExp) &&
+				record.sessExp > 0))
 	)
 }
 
@@ -82,6 +95,7 @@ function signedMessage(payload: string) {
 export async function createPackageAppHandoffToken(input: {
 	env: Env
 	claims: PackageAppHandoffClaims
+	sessionExpiresAt: number
 	now?: number
 }) {
 	const now = input.now ?? Date.now()
@@ -93,6 +107,7 @@ export async function createPackageAppHandoffToken(input: {
 			pkg: input.claims.kodyId,
 			exp: now + handoffTokenTtlMs,
 			jti: crypto.randomUUID(),
+			sessExp: input.sessionExpiresAt,
 		} satisfies StoredHandoffPayload),
 	)
 	const signature = await crypto.subtle.sign(
@@ -121,7 +136,7 @@ export async function consumePackageAppHandoffToken(input: {
 	token: string
 	expected: Pick<PackageAppHandoffClaims, 'username' | 'kodyId'>
 	now?: number
-}): Promise<PackageAppHandoffClaims | null> {
+}): Promise<ConsumedPackageAppHandoff | null> {
 	const now = input.now ?? Date.now()
 	const [payload, signature, ...rest] = input.token.split('.')
 	if (!payload || !signature || rest.length > 0) {
@@ -166,6 +181,15 @@ export async function consumePackageAppHandoffToken(input: {
 		console.warn('Package app handoff rejected.', { reason: 'expired' })
 		return null
 	}
+	const sessionExpiresAt =
+		parsed.sessExp ?? now + missingSessionExpiryFallbackMs
+	// Cookie Max-Age is whole seconds. Reject before the burn when the parent
+	// session has less than one second left, so a still-usable token is not
+	// consumed without a Set-Cookie.
+	if (remainingCookieMaxAgeSeconds(sessionExpiresAt, now) == null) {
+		console.warn('Package app handoff rejected.', { reason: 'expired' })
+		return null
+	}
 	if (
 		parsed.usr !== input.expected.username ||
 		parsed.pkg !== input.expected.kodyId
@@ -194,5 +218,6 @@ export async function consumePackageAppHandoffToken(input: {
 		stableUserId: parsed.stableUserId,
 		username: parsed.usr,
 		kodyId: parsed.pkg,
+		sessionExpiresAt,
 	}
 }

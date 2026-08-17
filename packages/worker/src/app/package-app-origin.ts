@@ -13,7 +13,11 @@ import {
 } from '#worker/app-base-url.ts'
 import { redirectToLoginWhenUnauthenticated } from '#app/auth-redirect.ts'
 import { readAuthenticatedAppUser } from '#app/authenticated-user.ts'
-import { isSecureRequest } from '#app/auth-session.ts'
+import {
+	getAuthSessionExpiresAtMs,
+	isSecureRequest,
+	readParsedAuthSession,
+} from '#app/auth-session.ts'
 import {
 	consumePackageAppHandoffToken,
 	createPackageAppHandoffToken,
@@ -250,6 +254,11 @@ async function redirectAppOriginToPackageAppOrigin(input: {
 		return new Response('Saved package app not found.', { status: 404 })
 	}
 
+	const parsedSession = await readParsedAuthSession(request)
+	if (!parsedSession) {
+		return await redirectToLoginWhenUnauthenticated(request, env)
+	}
+
 	target.searchParams.set(
 		packageAppHandoffQueryParam,
 		await createPackageAppHandoffToken({
@@ -259,6 +268,10 @@ async function redirectAppOriginToPackageAppOrigin(input: {
 				username: user.username,
 				kodyId: packagePath.kodyId,
 			},
+			sessionExpiresAt: getAuthSessionExpiresAtMs({
+				rememberMe: parsedSession.session.rememberMe,
+				issuedAt: parsedSession.issuedAt,
+			}),
 		}),
 	)
 	return redirectResponse({ location: target.toString(), status: 302 })
@@ -343,6 +356,7 @@ async function handleUserSubdomainRequest(input: {
 
 	const handoffToken = url.searchParams.get(packageAppHandoffQueryParam)
 	if (handoffToken) {
+		const now = Date.now()
 		const claims = await consumePackageAppHandoffToken({
 			env,
 			token: handoffToken,
@@ -350,6 +364,7 @@ async function handleUserSubdomainRequest(input: {
 				username: packagePath.username,
 				kodyId: packagePath.kodyId,
 			},
+			now,
 		})
 		if (claims) {
 			return redirectResponse({
@@ -362,6 +377,8 @@ async function handleUserSubdomainRequest(input: {
 						username: claims.username,
 					},
 					secure: isSecureRequest(request),
+					expiresAt: claims.sessionExpiresAt,
+					now,
 				}),
 			})
 		}
