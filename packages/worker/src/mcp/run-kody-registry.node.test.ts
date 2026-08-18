@@ -2695,6 +2695,179 @@ test('runBundledModuleWithRegistry finishes execute run records on failure only'
 	}
 })
 
+test('runBundledModuleWithRegistry retries transient Durable Object isolate resets', async () => {
+	silenceIncidentalRuntimeWarnings()
+	const env = {} as Env
+	const callerContext = createMcpCallerContext({
+		baseUrl: 'https://heykody.dev',
+		user: {
+			userId: 'user-do-reset',
+			email: 'reset@example.com',
+			displayName: 'Reset User',
+		},
+	})
+	const bundle = {
+		mainModule: 'entry.js',
+		modules: {
+			'entry.js': 'export default async () => "ok"',
+		},
+	}
+	const handle = {
+		id: 'run-do-reset-1',
+		userId: 'user-do-reset',
+		startedAt: '2026-08-18T00:00:00.000Z',
+		persistence: 'on-failure' as const,
+		context: {
+			surface: 'export' as const,
+			name: './scan',
+			metadata: {},
+		},
+	}
+	const runRecords = await import('#worker/run-records/service.ts')
+	const beginSpy = vi
+		.spyOn(runRecords, 'beginRunRecord')
+		.mockReturnValue(handle)
+	const finishSpy = vi
+		.spyOn(runRecords, 'finishRunRecord')
+		.mockResolvedValue(undefined)
+	const cleanHostSideEffects = {
+		dispatcherAttempts: 0,
+		fetchAttempts: 0,
+	}
+	const execute = vi
+		.fn()
+		.mockResolvedValueOnce({
+			result: undefined,
+			error: 'Durable Object reset because its code was updated.',
+			logs: [],
+			hostMediatedSideEffects: cleanHostSideEffects,
+		})
+		.mockResolvedValueOnce({
+			result: { scanned: 2 },
+			logs: ['recovered'],
+			hostMediatedSideEffects: cleanHostSideEffects,
+		})
+	const createExecuteExecutorSpy = vi
+		.spyOn(mcpExecutor, 'createExecuteExecutor')
+		.mockReturnValue({
+			execute,
+		} as never)
+	const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+	try {
+		vi.useFakeTimers()
+		const recoveredPending = runBundledModuleWithRegistry(
+			env,
+			callerContext,
+			bundle,
+			undefined,
+			{
+				skipCapabilityRegistry: true,
+				runRecord: {
+					surface: 'export',
+					name: './scan',
+				},
+			},
+		)
+		await vi.runAllTimersAsync()
+		const recovered = await recoveredPending
+		expect(recovered.error).toBeUndefined()
+		expect(recovered.result).toEqual({ scanned: 2 })
+		expect(execute).toHaveBeenCalledTimes(2)
+		expect(finishSpy).toHaveBeenCalledTimes(1)
+		expect(finishSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				handle,
+				status: 'success',
+				result: { scanned: 2 },
+			}),
+		)
+		expect(consoleWarn).toHaveBeenCalledWith(
+			expect.stringContaining(
+				'runBundledModuleWithRegistry transient Durable Object reset',
+			),
+		)
+
+		execute.mockReset()
+		finishSpy.mockClear()
+		consoleWarn.mockClear()
+		execute.mockResolvedValue({
+			result: undefined,
+			error: 'Durable Object reset because its code was updated.',
+			logs: [],
+			hostMediatedSideEffects: cleanHostSideEffects,
+		})
+		const exhaustedPending = runBundledModuleWithRegistry(
+			env,
+			callerContext,
+			bundle,
+			undefined,
+			{
+				skipCapabilityRegistry: true,
+				runRecord: {
+					surface: 'export',
+					name: './scan',
+				},
+			},
+		)
+		await vi.runAllTimersAsync()
+		const exhausted = await exhaustedPending
+		expect(exhausted.error).toBe(
+			'Durable Object reset because its code was updated.',
+		)
+		expect(execute).toHaveBeenCalledTimes(3)
+		expect(finishSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: 'error',
+				error: expect.objectContaining({
+					message: 'Durable Object reset because its code was updated.',
+				}),
+			}),
+		)
+
+		execute.mockReset()
+		finishSpy.mockClear()
+		consoleWarn.mockClear()
+		execute.mockResolvedValue({
+			result: undefined,
+			error: 'Durable Object reset because its code was updated.',
+			logs: [],
+			hostMediatedSideEffects: {
+				dispatcherAttempts: 1,
+				fetchAttempts: 0,
+			},
+		})
+		const dirty = await runBundledModuleWithRegistry(
+			env,
+			callerContext,
+			bundle,
+			undefined,
+			{
+				skipCapabilityRegistry: true,
+				runRecord: {
+					surface: 'export',
+					name: './scan',
+				},
+			},
+		)
+		expect(dirty.error).toBe(
+			'Durable Object reset because its code was updated.',
+		)
+		expect(execute).toHaveBeenCalledTimes(1)
+		expect(consoleWarn).not.toHaveBeenCalledWith(
+			expect.stringContaining(
+				'runBundledModuleWithRegistry transient Durable Object reset',
+			),
+		)
+	} finally {
+		vi.useRealTimers()
+		consoleWarn.mockRestore()
+		beginSpy.mockRestore()
+		finishSpy.mockRestore()
+		createExecuteExecutorSpy.mockRestore()
+	}
+})
+
 test('runBundledModuleWithRegistry schedules finish via waitUntil when provided', async () => {
 	silenceIncidentalRuntimeWarnings()
 	const env = {} as Env
