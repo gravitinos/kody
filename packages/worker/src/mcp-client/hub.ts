@@ -12,6 +12,17 @@ import {
 	resolveMcpOAuthCallbackOutcome,
 } from './oauth-callback-outcome.ts'
 import {
+	createInitialMcpConnectionEpisode,
+	mcpConnectionEpisodeStorageKey,
+	mcpConnectionEventsPendingStorageKey,
+	mcpLightweightReconnectAttempts,
+	mcpLightweightReconnectBackoffMs,
+	mcpLightweightReconnectDiscoverTimeoutMs,
+	observeMcpConnectionState,
+	type McpConnectionEpisodeRecord,
+	type McpServerConnectionEvent,
+} from './connection-episodes.ts'
+import {
 	type McpClientHubSnapshot,
 	type McpServerConnectResult,
 	type McpServerConnectionState,
@@ -194,12 +205,16 @@ class McpClientHubBase extends DurableObject<Env> {
 				...(input.headers ? { headers: input.headers } : {}),
 			},
 		})
-		const result = await this.manager.connectToServer(input.serverId)
-		if (result.state === 'connected') {
+		const connected = await this.manager.connectToServer(input.serverId)
+		if (connected.state === 'connected') {
 			await this.manager.discoverIfConnected(input.serverId, {
 				timeoutMs: discoverTimeoutMs,
 			})
 		}
+		await this.observeServer({
+			serverId: input.serverId,
+			serverName: input.name,
+		})
 		return this.buildConnectResult(input.serverId)
 	}
 
@@ -219,7 +234,17 @@ class McpClientHubBase extends DurableObject<Env> {
 		await this.manager.waitForConnections({
 			timeout: connectionSettleTimeoutMs,
 		})
-		return await this.restartServerAuthorization(input)
+		await this.restartServerAuthorization(input)
+		const row = this.manager
+			.listServers()
+			.find((server) => server.id === input.serverId)
+		if (row) {
+			await this.observeServer({
+				serverId: row.id,
+				serverName: row.name,
+			})
+		}
+		return this.buildConnectResult(input.serverId)
 	}
 
 	/** Re-discover tools for a connected server. */
@@ -233,12 +258,24 @@ class McpClientHubBase extends DurableObject<Env> {
 		await this.manager.discoverIfConnected(input.serverId, {
 			timeoutMs: discoverTimeoutMs,
 		})
+		const row = this.manager
+			.listServers()
+			.find((server) => server.id === input.serverId)
+		if (row) {
+			await this.observeServer({
+				serverId: row.id,
+				serverName: row.name,
+			})
+		}
 		return this.buildConnectResult(input.serverId)
 	}
 
 	async removeServer(input: { serverId: string }): Promise<void> {
 		await this.ensureRestored()
 		await this.manager.removeServer(input.serverId)
+		await this.ctx.storage.delete(
+			mcpConnectionEpisodeStorageKey(input.serverId),
+		)
 	}
 
 	/**
@@ -312,12 +349,18 @@ class McpClientHubBase extends DurableObject<Env> {
 			if (isStuckMcpAuthenticatingWithoutAuthUrl(connection)) {
 				connection = await this.recoverStuckAuthenticating(serverId)
 			}
+			if (serverName) {
+				await this.observeServer({
+					serverId,
+					serverName,
+				})
+			}
 			return resolveMcpOAuthCallbackOutcome({
 				sdkAuthSuccess: true,
 				sdkAuthError: result.authError ?? null,
 				serverId,
 				serverName,
-				connection,
+				connection: this.buildConnectResult(serverId),
 			})
 		}
 		return resolveMcpOAuthCallbackOutcome({
@@ -519,10 +562,17 @@ class McpClientHubBase extends DurableObject<Env> {
 		await this.manager.waitForConnections({
 			timeout: connectionSettleTimeoutMs,
 		})
+		for (const row of this.manager.listServers()) {
+			await this.observeServer({
+				serverId: row.id,
+				serverName: row.name,
+			})
+		}
 		return {
 			servers: this.manager
 				.listServers()
 				.map((row) => this.buildServerSnapshot(row)),
+			connectionEvents: await this.takeConnectionEvents(),
 		}
 	}
 
@@ -535,6 +585,15 @@ class McpClientHubBase extends DurableObject<Env> {
 		await this.manager.waitForConnections({
 			timeout: connectionSettleTimeoutMs,
 		})
+		const row = this.manager
+			.listServers()
+			.find((server) => server.id === input.serverId)
+		if (row) {
+			await this.observeServer({
+				serverId: row.id,
+				serverName: row.name,
+			})
+		}
 		const state = this.connectionStateFor(input.serverId)
 		if (state !== 'ready') {
 			throw new Error(
@@ -546,6 +605,115 @@ class McpClientHubBase extends DurableObject<Env> {
 			name: input.toolName,
 			arguments: input.args,
 		})) as CallToolResult
+	}
+
+	async takeConnectionEvents(): Promise<Array<McpServerConnectionEvent>> {
+		const events =
+			(await this.ctx.storage.get<Array<McpServerConnectionEvent>>(
+				mcpConnectionEventsPendingStorageKey,
+			)) ?? []
+		if (events.length > 0) {
+			await this.ctx.storage.delete(mcpConnectionEventsPendingStorageKey)
+		}
+		return events
+	}
+
+	private async readEpisode(
+		serverId: string,
+	): Promise<McpConnectionEpisodeRecord> {
+		return (
+			(await this.ctx.storage.get<McpConnectionEpisodeRecord>(
+				mcpConnectionEpisodeStorageKey(serverId),
+			)) ?? createInitialMcpConnectionEpisode()
+		)
+	}
+
+	private async writeEpisode(
+		serverId: string,
+		episode: McpConnectionEpisodeRecord,
+		event?: McpServerConnectionEvent,
+	) {
+		const entries: Record<string, unknown> = {
+			[mcpConnectionEpisodeStorageKey(serverId)]: episode,
+		}
+		if (event) {
+			const existing =
+				(await this.ctx.storage.get<Array<McpServerConnectionEvent>>(
+					mcpConnectionEventsPendingStorageKey,
+				)) ?? []
+			entries[mcpConnectionEventsPendingStorageKey] = [...existing, event]
+		}
+		await this.ctx.storage.put(entries)
+	}
+
+	private async lightweightReconnectServer(serverId: string) {
+		const connected = await this.manager.connectToServer(serverId)
+		if (connected.state === 'connected') {
+			await this.manager.discoverIfConnected(serverId, {
+				timeoutMs: mcpLightweightReconnectDiscoverTimeoutMs,
+			})
+		}
+		return this.buildConnectResult(serverId)
+	}
+
+	private async recoverUnavailableServer(serverId: string) {
+		for (
+			let attempt = 0;
+			attempt < mcpLightweightReconnectAttempts;
+			attempt++
+		) {
+			if (attempt > 0) {
+				const backoffMs = mcpLightweightReconnectBackoffMs[attempt - 1] ?? 0
+				if (backoffMs > 0) {
+					await new Promise((resolve) => setTimeout(resolve, backoffMs))
+				}
+			}
+			try {
+				const result = await this.lightweightReconnectServer(serverId)
+				if (result.state === 'ready' || result.state === 'authenticating') {
+					return
+				}
+			} catch {
+				// The next attempt (or the observe pass) records the still-down state.
+			}
+		}
+	}
+
+	private async observeServer(input: { serverId: string; serverName: string }) {
+		const previous = await this.readEpisode(input.serverId)
+		const first = observeMcpConnectionState({
+			previous,
+			currentState: this.connectionStateFor(input.serverId),
+			retryCompleted: false,
+			createEpisodeId: () => crypto.randomUUID(),
+		})
+		let decision = first
+		if (first.shouldRetry) {
+			await this.writeEpisode(input.serverId, first.next)
+			await this.recoverUnavailableServer(input.serverId)
+			decision = observeMcpConnectionState({
+				previous: first.next,
+				currentState: this.connectionStateFor(input.serverId),
+				retryCompleted: true,
+				createEpisodeId: () => crypto.randomUUID(),
+			})
+		}
+		await this.writeEpisode(
+			input.serverId,
+			decision.next,
+			decision.event
+				? {
+						topic: decision.event.topic,
+						eventId: crypto.randomUUID(),
+						episodeId: decision.event.episodeId,
+						serverId: input.serverId,
+						serverName: input.serverName,
+						state: this.connectionStateFor(input.serverId),
+						previousState: decision.event.previousState,
+						observedAt: new Date().toISOString(),
+					}
+				: undefined,
+		)
 	}
 
 	/** Close all connections and wipe stored servers, tokens, and OAuth state. */
