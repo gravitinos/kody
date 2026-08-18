@@ -583,9 +583,16 @@ async function ensureProductionResources(options: CliOptions) {
 	const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
 	const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim()
 	const zoneId = process.env.CLOUDFLARE_ZONE_ID?.trim()
-	if ((!accountId || !apiToken || !zoneId) && !options.dryRun) {
+	const provisionEmailDelivery =
+		process.env.PROVISION_EMAIL_DELIVERY?.trim() !== 'false'
+	if (
+		(!accountId || !apiToken || (provisionEmailDelivery && !zoneId)) &&
+		!options.dryRun
+	) {
 		fail(
-			'Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, or CLOUDFLARE_API_TOKEN for Queue provisioning.',
+			provisionEmailDelivery
+				? 'Missing CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ZONE_ID, or CLOUDFLARE_API_TOKEN for production resource provisioning.'
+				: 'Missing CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN for production resource provisioning.',
 		)
 	}
 	const queueClient = {
@@ -656,19 +663,30 @@ async function ensureProductionResources(options: CliOptions) {
 		name: bindings.webhookDispatchDeadLetterQueueName,
 		existingQueues,
 	})
-	const emailSendingDomain = resolveEmailSendingDomain({
-		dryRun: options.dryRun,
-		committedUserEmailDomain: bindings.committedUserEmailDomain,
-	})
-	const emailEventSubscription = await ensureEmailSendingEventSubscription({
-		accountId: accountId ?? 'dry-run-account',
-		apiToken: apiToken ?? 'dry-run-token',
-		name: truncateWithSuffix(bindings.workerName, '-email-delivery-events', 63),
-		queueId: emailDeliveryQueue.id,
-		domain: emailSendingDomain,
-		zoneId: zoneId ?? 'dry-run-zone',
-		dryRun: options.dryRun,
-	})
+	let emailEventSubscription = { id: '', name: '' }
+	if (provisionEmailDelivery) {
+		const emailSendingDomain = resolveEmailSendingDomain({
+			dryRun: options.dryRun,
+			committedUserEmailDomain: bindings.committedUserEmailDomain,
+		})
+		emailEventSubscription = await ensureEmailSendingEventSubscription({
+			accountId: accountId ?? 'dry-run-account',
+			apiToken: apiToken ?? 'dry-run-token',
+			name: truncateWithSuffix(
+				bindings.workerName,
+				'-email-delivery-events',
+				63,
+			),
+			queueId: emailDeliveryQueue.id,
+			domain: emailSendingDomain,
+			zoneId: zoneId ?? 'dry-run-zone',
+			dryRun: options.dryRun,
+		})
+	} else {
+		console.error(
+			'Skipping Email Sending event subscription because PROVISION_EMAIL_DELIVERY=false.',
+		)
+	}
 	const artifactsEventSubscription =
 		await ensureArtifactsAccountEventSubscription({
 			accountId: accountId ?? 'dry-run-account',

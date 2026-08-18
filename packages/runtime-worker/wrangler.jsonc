@@ -88,7 +88,6 @@
 				"enabled": true,
 				"traces": {
 					"enabled": true,
-					"destinations": ["sentry-otlp-traces"],
 				},
 			},
 			"worker_loaders": [
@@ -256,8 +255,6 @@
 				"SENTRY_ENVIRONMENT": "production",
 				"SENTRY_TRACES_SAMPLE_RATE": 0,
 				"ARTIFACTS_NAMESPACE": "production",
-				"PACKAGE_APP_BASE_URL": "https://kody.run",
-				"PACKAGE_APP_LEGACY_HOSTS": "kodyapps.dev",
 			},
 		},
 		"preview": {

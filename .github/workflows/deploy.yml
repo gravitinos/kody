@@ -53,6 +53,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           WORKFLOW_DISPATCH_SHA: ${{ github.sha }}
+          DEPLOY_BACKUP_CONTROL_PLANE: ${{ vars.DEPLOY_BACKUP_CONTROL_PLANE }}
+          DEPLOY_STATUS_WORKER: ${{ vars.DEPLOY_STATUS_WORKER }}
+          DEPLOY_NX_CACHE_WORKER: ${{ vars.DEPLOY_NX_CACHE_WORKER }}
         run: |
           set -euo pipefail
           DEPLOY_SHA="$WORKFLOW_RUN_SHA"
@@ -80,44 +83,37 @@ jobs:
           fi
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
 
-          # Always redeploy the DR control plane and status worker on manual
-          # workflow_dispatch. On push-driven deploys, only when their files
-          # changed in the commit being deployed.
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$DEPLOY_BACKUP_CONTROL_PLANE" = "true" ] && \
+            { [ "$EVENT_NAME" = "workflow_dispatch" ] || \
+              git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
+            '^(\.github/workflows/deploy\.yml|tools/ci/backup-resources|packages/backup-control-plane/|packages/shared/src/backup-)'; }; then
             echo "deploy_backup_control_plane=true" >> "$GITHUB_OUTPUT"
-            echo "deploy_status_worker=true" >> "$GITHUB_OUTPUT"
-            echo "deploy_nx_cache_worker=true" >> "$GITHUB_OUTPUT"
-            echo "Backup control plane deploy: forced (workflow_dispatch)."
-            echo "Status worker deploy: forced (workflow_dispatch)."
-            echo "Nx cache worker deploy: forced (workflow_dispatch)."
-            exit 0
-          fi
-
-          if git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
-            '^(\.github/workflows/deploy\.yml|tools/ci/backup-resources|packages/backup-control-plane/|packages/shared/src/backup-)'; then
-            echo "deploy_backup_control_plane=true" >> "$GITHUB_OUTPUT"
-            echo "Backup control plane deploy: path filter matched."
+            echo "Backup control plane deploy: enabled and selected."
           else
             echo "deploy_backup_control_plane=false" >> "$GITHUB_OUTPUT"
-            echo "Backup control plane deploy: skipped (no relevant path changes)."
+            echo "Backup control plane deploy: disabled or no relevant path changes."
           fi
 
-          if git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
-            '^(\.github/workflows/deploy\.yml|packages/status/)'; then
+          if [ "$DEPLOY_STATUS_WORKER" = "true" ] && \
+            { [ "$EVENT_NAME" = "workflow_dispatch" ] || \
+              git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
+            '^(\.github/workflows/deploy\.yml|packages/status/)'; }; then
             echo "deploy_status_worker=true" >> "$GITHUB_OUTPUT"
-            echo "Status worker deploy: path filter matched."
+            echo "Status worker deploy: enabled and selected."
           else
             echo "deploy_status_worker=false" >> "$GITHUB_OUTPUT"
-            echo "Status worker deploy: skipped (no relevant path changes)."
+            echo "Status worker deploy: disabled or no relevant path changes."
           fi
 
-          if git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
-            '^(\.github/workflows/deploy\.yml|tools/ci/nx-cache-resources|packages/nx-cache/)'; then
+          if [ "$DEPLOY_NX_CACHE_WORKER" = "true" ] && \
+            { [ "$EVENT_NAME" = "workflow_dispatch" ] || \
+              git diff --name-only "${DEPLOY_SHA}^" "${DEPLOY_SHA}" | grep -E \
+            '^(\.github/workflows/deploy\.yml|tools/ci/nx-cache-resources|packages/nx-cache/)'; }; then
             echo "deploy_nx_cache_worker=true" >> "$GITHUB_OUTPUT"
-            echo "Nx cache worker deploy: path filter matched."
+            echo "Nx cache worker deploy: enabled and selected."
           else
             echo "deploy_nx_cache_worker=false" >> "$GITHUB_OUTPUT"
-            echo "Nx cache worker deploy: skipped (no relevant path changes)."
+            echo "Nx cache worker deploy: disabled or no relevant path changes."
           fi
 
   # The jobs worker deploys before the main worker on every production
@@ -305,6 +301,7 @@ jobs:
           LEGACY_SYSTEM_EMAIL_DOMAINS: ${{ vars.LEGACY_SYSTEM_EMAIL_DOMAINS }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          PROVISION_EMAIL_DELIVERY: ${{ vars.PROVISION_EMAIL_DELIVERY }}
         run: |
           set -euo pipefail
           node tools/ci/production-resources.ts ensure --out-config packages/worker/wrangler-production.generated.json | tee -a "$GITHUB_OUTPUT"
@@ -348,23 +345,21 @@ jobs:
           "$WRANGLER_CONFIG" --set-from-env COOKIE_SECRET
           --set-from-env-optional SECRET_STORE_KEY --set-from-env-optional
           AI_GATEWAY_ID --set-from-env-optional SENTRY_DSN
-          --set-from-env-optional CLOUDFLARE_API_TOKEN --set-from-env-optional
-          CAPABILITY_REINDEX_SECRET --set-from-env-optional GITHUB_CLIENT_ID
-          --set-from-env-optional GITHUB_CLIENT_SECRET --set-from-env-optional
-          GOOGLE_CLIENT_ID --set-from-env-optional GOOGLE_CLIENT_SECRET
-          --set-from-env-optional X_CLIENT_ID --set-from-env-optional
-          X_CLIENT_SECRET --set-from-env-optional KIT_API_KEY
-          --set-from-env-optional STRIPE_SECRET_KEY --set-from-env-optional
-          STRIPE_WEBHOOK_SECRET --set-from-env-optional
-          STATUS_INCIDENT_EVENT_SECRET
+          --set-from-env-optional CAPABILITY_REINDEX_SECRET
+          --set-from-env-optional GITHUB_CLIENT_ID --set-from-env-optional
+          GITHUB_CLIENT_SECRET --set-from-env-optional GOOGLE_CLIENT_ID
+          --set-from-env-optional GOOGLE_CLIENT_SECRET --set-from-env-optional
+          X_CLIENT_ID --set-from-env-optional X_CLIENT_SECRET
+          --set-from-env-optional KIT_API_KEY --set-from-env-optional
+          STRIPE_SECRET_KEY --set-from-env-optional STRIPE_WEBHOOK_SECRET
+          --set-from-env-optional STATUS_INCIDENT_EVENT_SECRET
 
       # Runtime-lane secret allowlist (ADR 0016): only the secrets the
       # package runtime lane actually reads. COOKIE_SECRET/SECRET_STORE_KEY
       # (app-origin sessions + user secret store), AI_GATEWAY_ID (capability
-      # embeddings), SENTRY_DSN (error reporting), CLOUDFLARE_API_TOKEN
-      # (Cloudflare REST capabilities). Billing (Stripe), waiting-list (Kit),
-      # OAuth client credentials, and maintenance secrets stay main-only so a
-      # runtime-Worker compromise cannot reach them.
+      # embeddings), and SENTRY_DSN (error reporting). The broad CI deploy token
+      # is deliberately not copied into either Worker; add a separate,
+      # least-privilege user secret for Cloudflare API capabilities.
       # --env "" with --name: wrangler secret bulk still suffixes -<env>
       # even when --name is set, so --env production would write
       # COOKIE_SECRET to kody-runtime-production while deploy uploads
@@ -383,7 +378,6 @@ jobs:
           --config "$WRANGLER_CONFIG" --set-from-env COOKIE_SECRET
           --set-from-env-optional SECRET_STORE_KEY --set-from-env-optional
           AI_GATEWAY_ID --set-from-env-optional SENTRY_DSN
-          --set-from-env-optional CLOUDFLARE_API_TOKEN
 
       - name: 🗄️ Apply D1 Migrations
         env:

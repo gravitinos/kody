@@ -114,13 +114,12 @@ confirmed non-production runtimes; see `packages/worker/src/app-base-url.ts` and
 `packages/worker/src/app/package-app-origin.ts`):
 
 - `PACKAGE_APP_BASE_URL` — the **apex** origin of the package-app domain that
-  hosted package apps are served from. Production sets `https://kody.run` in
-  `packages/worker/wrangler.jsonc`, and the deploy publishes **zone routes** for
-  the apex (`<apex-host>/*`) and the per-user wildcard (`*.<apex-host>/*`) on
-  the runtime Worker — never a custom domain in this zone (replacing a zone's
-  route table detaches its custom domains and deletes their DNS records). Zone
-  routes do not create DNS records, so production CI ensures proxied placeholder
-  records for both names separately (see
+  hosted package apps are served from. When configured, the deploy publishes
+  **zone routes** for the apex (`<apex-host>/*`) and the per-user wildcard
+  (`*.<apex-host>/*`) on the runtime Worker — never a custom domain in this zone
+  (replacing a zone's route table detaches its custom domains and deletes their
+  DNS records). Zone routes do not create DNS records, so production CI ensures
+  proxied placeholder records for both names separately (see
   [setup-manifest.md](./setup-manifest.md)). Each owner's apps are addressed at
   `https://{username}.<apex-host>/packages/{kodyId}/...`; the apex itself serves
   only redirects (legacy `/@user/packages/...` paths to the owning subdomain,
@@ -134,7 +133,11 @@ confirmed non-production runtimes; see `packages/worker/src/app-base-url.ts` and
   unset and keep serving package apps inline on the app origin at
   `/@{username}/packages/*`.
 
-  `npm run dev` runs the **production** Wrangler environment, so the committed
+  A production self-host that does not need package-app web surfaces may leave
+  this unset. The app custom domain still deploys, and package-app paths fail
+  closed instead of serving untrusted author code on the first-party origin.
+
+  `npm run dev` runs the **production** Wrangler environment, so any committed
   production value reaches local dev too; `getPackageAppBaseUrl` ignores an
   origin a local server cannot answer on, which keeps `npm run dev` inline. Set
   `PACKAGE_APP_BASE_URL=http://packages.localhost:<port>` in

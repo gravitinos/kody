@@ -4,6 +4,10 @@ This document describes the infrastructure and secrets that kody expects.
 
 ## Cloudflare resources
 
+Production uses Cloudflare Artifacts and Dynamic Workers, which require a
+[Workers Paid account](https://developers.cloudflare.com/workers/platform/pricing/).
+The domain's Cloudflare zone may remain on its separate Free DNS plan.
+
 This project uses the following resources:
 
 - D1 database
@@ -179,10 +183,13 @@ This project uses the following resources:
     origin so author-supplied package code is cross-site. Do not point it at a
     subdomain of the app origin, and do not host anything first-party on it. See
     [Hosted package app origin isolation](./security.md#hosted-package-app-origin-isolation).
-  - Production forks must register a second domain and set
-    `PACKAGE_APP_BASE_URL`; package-app requests return `500` when it is missing
-    or not on a separate registrable domain. Confirmed local, preview, and test
-    runtimes may leave it unset and use inline serving.
+  - Production forks that need hosted package-app web surfaces must register a
+    second domain and set `PACKAGE_APP_BASE_URL`. Forks that only need MCP,
+    packages, jobs, workflows, memories, and secrets may leave it unset; the
+    first-party app domain still deploys, while package-app requests fail closed
+    with `500` instead of serving author code on the session-bearing origin.
+    Confirmed local, preview, and test runtimes may leave it unset and use
+    inline serving.
 - Workers Observability OTLP destination (account-level)
   - Workers automatic tracing is enabled via `observability.traces` in
     `packages/worker/wrangler.jsonc`; traces are viewable in the Workers
@@ -362,13 +369,12 @@ automatically:
   require a system email domain and use `kody@<domain>` as the sender — the
   `SYSTEM_EMAIL_DOMAIN` override when set, otherwise the `APP_BASE_URL`
   hostname.)
-- `PACKAGE_APP_BASE_URL` (Wrangler `var`; required in production and optional
-  for confirmed local/preview/test runtimes; origin for hosted package apps.
-  Production sets `https://kody.run` in `packages/worker/wrangler.jsonc`, and
-  the deploy publishes apex and wildcard zone routes (`kody.run/*`,
-  `*.kody.run/*`, plus the dual-served `kodyapps.dev` pair) on the runtime
-  Worker (see the Cloudflare resources list above — never a custom domain in
-  this zone). Per-user apps use `{username}.kody.run` subdomains; production CI
+- `PACKAGE_APP_BASE_URL` (Wrangler `var`; required only when production hosted
+  package-app web surfaces are enabled; origin for hosted package apps. When
+  set, the deploy publishes apex and wildcard zone routes (for example,
+  `packages.example/*` and `*.packages.example/*`) on the runtime Worker (see
+  the Cloudflare resources list above — never a custom domain in this zone).
+  Per-user apps use `{username}.<package-app-host>` subdomains; production CI
   ensures the proxied apex and wildcard DNS records. Must be a **separate
   registrable domain** from `APP_BASE_URL` — see
   [Hosted package app origin isolation](./security.md#hosted-package-app-origin-isolation).
@@ -376,10 +382,10 @@ automatically:
   unset, so those keep serving package apps inline on the app origin. Point it
   at `http://packages.localhost:<port>` in `packages/worker/.env` to exercise
   the two-origin flow locally.)
-- `PACKAGE_APP_LEGACY_HOSTS` (Wrangler `var`; production commits `kodyapps.dev`
-  so that package-app zone stays dual-served alongside `PACKAGE_APP_BASE_URL`.
-  Generated runtime zone routes replace the whole set, so omitting a listed host
-  detaches it and deletes its DNS.)
+- `PACKAGE_APP_LEGACY_HOSTS` (Wrangler `var`; optional comma-separated legacy
+  hosts that keep the package-app zone dual-served alongside
+  `PACKAGE_APP_BASE_URL`. Generated runtime zone routes replace the whole set,
+  so omitting a listed host detaches it and deletes its DNS.)
 - `PACKAGE_APP_LEGACY_REDIRECT` (optional GitHub Actions variable; exact string
   `true` enables GET/HEAD 308s from `{username}.kodyapps.dev` to
   `{username}.kody.run`. Leave unset to dual-serve.)
@@ -463,9 +469,17 @@ Configure these GitHub Actions secrets and variables for workflows:
   account secrets + package workflows)
 - `CLOUDFLARE_ACCOUNT_ID` (required GitHub Actions **variable** for Cloudflare
   resource provisioning and Email Service)
-- `CLOUDFLARE_ZONE_ID` (required GitHub Actions **variable** for the zone that
-  owns the user email sending domain; Email Sending event subscriptions require
-  both this zone id and the domain)
+- `CLOUDFLARE_ZONE_ID` (required GitHub Actions **variable** only when
+  `PROVISION_EMAIL_DELIVERY` is not `false`; identifies the zone that owns the
+  user email sending domain)
+- `PROVISION_EMAIL_DELIVERY` (optional GitHub Actions **variable**; defaults to
+  enabled. Set the exact string `false` for a self-hosted deployment that does
+  not configure Cloudflare Email Sending. Email event subscription provisioning
+  is skipped; seed the first account as verified before connecting MCP.)
+- `DEPLOY_BACKUP_CONTROL_PLANE`, `DEPLOY_STATUS_WORKER`, and
+  `DEPLOY_NX_CACHE_WORKER` (optional GitHub Actions **variables**; each optional
+  production worker is deployed only when its variable is exactly `true` and the
+  matching files changed, or when a manual production deploy is requested)
 - `COOKIE_SECRET` (same format as local)
 - `SECRET_STORE_KEY` (same format as local; required for deploys; also sealed
   into the DR bucket via `.github/workflows/dr-escrow.yml` using

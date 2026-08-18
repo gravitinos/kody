@@ -135,15 +135,13 @@ test('writeGeneratedWranglerConfig preserves migrations and copies environment a
 				bucket_name: 'kody-repo-session-blobs',
 			},
 		])
-		// The routes are generated from the base-URL vars rather than committed,
+		// The app route is generated from APP_BASE_URL rather than committed,
 		// because a committed route would make `wrangler dev` resolve every local
-		// request as that production host. The package-app host is attached to
-		// the runtime Worker (ADR 0016), so the main Worker publishes only the
-		// app origin (plus legacy origins).
+		// request as that production host. This fork leaves hosted package apps
+		// disabled, so only the first-party app origin is published.
 		const packageAppBaseUrl =
 			productionConfig.env?.production?.vars?.PACKAGE_APP_BASE_URL
-		expect(typeof packageAppBaseUrl).toBe('string')
-		const packageAppHostname = new URL(String(packageAppBaseUrl)).hostname
+		expect(packageAppBaseUrl).toBeUndefined()
 		expect(productionConfig.env?.production?.routes).toEqual([
 			{ pattern: 'heykody.dev', custom_domain: true },
 		])
@@ -272,6 +270,9 @@ test('writeGeneratedWranglerConfig preserves migrations and copies environment a
 					communityAssetsBucketName: 'kody-community-assets',
 					emailBlobsBucketName: 'kody-email-blobs',
 					repoSessionBlobsBucketName: 'kody-repo-session-blobs',
+					workerVars: {
+						PACKAGE_APP_BASE_URL: 'https://kody.run',
+					},
 				}),
 			).rejects.toThrow('process.exit called')
 			expect(consoleError).toHaveBeenCalledWith(
@@ -311,6 +312,8 @@ test('writeGeneratedWranglerConfig keeps legacy app hosts attached during a doma
 			workerVars: {
 				APP_BASE_URL: 'https://heykody.app',
 				APP_LEGACY_HOSTS: 'heykody.dev',
+				PACKAGE_APP_BASE_URL: 'https://kody.run',
+				PACKAGE_APP_LEGACY_HOSTS: 'kodyapps.dev',
 			},
 		})
 
@@ -363,6 +366,8 @@ test('writeGeneratedWranglerConfig keeps legacy app hosts attached during a doma
 						workerVars: {
 							APP_BASE_URL: 'https://heykody.app',
 							APP_LEGACY_HOSTS: legacyHosts,
+							PACKAGE_APP_BASE_URL: 'https://kody.run',
+							PACKAGE_APP_LEGACY_HOSTS: 'kodyapps.dev',
 						},
 					}),
 				).rejects.toThrow('process.exit called')
