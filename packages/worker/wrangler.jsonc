@@ -439,12 +439,6 @@
 			"ai": {
 				"binding": "AI",
 			},
-			"artifacts": [
-				{
-					"binding": "ARTIFACTS",
-					"namespace": "production",
-				},
-			],
 			"vars": {
 				"SENTRY_ENVIRONMENT": "production",
 				"SIGNUP_MODE": "invite",
