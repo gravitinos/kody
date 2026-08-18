@@ -6,10 +6,13 @@ import { routes } from '#universal/routes.ts'
 import { colors, spacing } from '#universal/styles/tokens.ts'
 import { type RouteLoader } from './route-loader.ts'
 import { createSpinDelay } from './spin-delay.ts'
+import { loadSyntaxHighlight } from './syntax-highlight.tsx'
 import type * as accountAreaExports from './routes/account-area.ts'
 import type * as adminAreaExports from './routes/admin-area.ts'
+import type * as authAreaExports from './routes/auth-area.ts'
 import type * as blogAreaExports from './routes/blog-area.ts'
 import type * as communityAreaExports from './routes/community-area.ts'
+import type * as marketingAreaExports from './routes/marketing-area.ts'
 import type * as onboardingAreaExports from './routes/onboarding-area.ts'
 
 export type LazyRouteArea<TModule> = {
@@ -52,8 +55,10 @@ export function createLazyRouteArea<TModule>(
 
 export type AccountAreaModule = typeof accountAreaExports
 export type AdminAreaModule = typeof adminAreaExports
+export type AuthAreaModule = typeof authAreaExports
 export type CommunityAreaModule = typeof communityAreaExports
 export type BlogAreaModule = typeof blogAreaExports
+export type MarketingAreaModule = typeof marketingAreaExports
 export type OnboardingAreaModule = typeof onboardingAreaExports
 
 export const accountArea = createLazyRouteArea<AccountAreaModule>(
@@ -89,6 +94,20 @@ export const onboardingArea = createLazyRouteArea<OnboardingAreaModule>(
 		// Dynamic import is intentional for route-level code splitting
 		// (sanctioned exception to the no-inline-imports rule).
 		import('./routes/onboarding-area.ts'),
+)
+
+export const authArea = createLazyRouteArea<AuthAreaModule>(
+	() =>
+		// Dynamic import is intentional for route-level code splitting
+		// (sanctioned exception to the no-inline-imports rule).
+		import('./routes/auth-area.ts'),
+)
+
+export const marketingArea = createLazyRouteArea<MarketingAreaModule>(
+	() =>
+		// Dynamic import is intentional for route-level code splitting
+		// (sanctioned exception to the no-inline-imports rule).
+		import('./routes/marketing-area.ts'),
 )
 
 type LazyRouteRenderProps<TModule> = {
@@ -178,6 +197,10 @@ export const LazyBlogRoute: LazyRouteComponent<BlogAreaModule> =
 	createLazyRoute(blogArea)
 export const LazyOnboardingRoute: LazyRouteComponent<OnboardingAreaModule> =
 	createLazyRoute(onboardingArea)
+export const LazyAuthRoute: LazyRouteComponent<AuthAreaModule> =
+	createLazyRoute(authArea)
+export const LazyMarketingRoute: LazyRouteComponent<MarketingAreaModule> =
+	createLazyRoute(marketingArea)
 
 export function lazyRouteLoader<TModule>(
 	area: LazyRouteArea<TModule>,
@@ -311,6 +334,32 @@ registerPreloadPatterns(
 	},
 )
 
+registerPreloadPatterns(
+	[
+		routePattern(routes.login),
+		routePattern(routes.signup),
+		routePattern(routes.pendingVerification),
+		routePattern(routes.resetPassword),
+		routePattern(routes.verify),
+		routePattern(routes.verifyEmail),
+		routePattern(routes.verifyEmailChange),
+	],
+	{ name: 'auth-area', load: authArea.load, getCached: authArea.getCached },
+)
+
+registerPreloadPatterns(
+	[
+		routePattern(routes.pricing),
+		routePattern(routes.privacy),
+		routePattern(routes.terms),
+	],
+	{
+		name: 'marketing-area',
+		load: marketingArea.load,
+		getCached: marketingArea.getCached,
+	},
+)
+
 export function isClientRouteModuleCached(pathnameWithSearch: string) {
 	const url = new URL(pathnameWithSearch, clientRouteOrigin)
 	const match = preloadMatcher.match(url)
@@ -330,12 +379,29 @@ export function listenToLazyRouteLoads(
  * No-op for eager routes. Call before SSR stream, before hydration
  * `app.ready()`, and alongside SPA navigation loaders.
  */
+/**
+ * Lazy areas that statically render Shiki fences. Keep in sync with
+ * `highlightAreaNames` in `tools/build-client-manifest.ts`.
+ */
+export const syntaxHighlightAreaNames = [
+	'account-area',
+	'blog-area',
+	'community-area',
+	'onboarding-area',
+] as const
+
+const syntaxHighlightAreaNameSet = new Set<string>(syntaxHighlightAreaNames)
+
 export async function preloadClientRouteModules(
 	pathnameWithSearch: string,
 ): Promise<void> {
 	const url = new URL(pathnameWithSearch, clientRouteOrigin)
 	const match = preloadMatcher.match(url)
 	if (!match) return
+	if (syntaxHighlightAreaNameSet.has(match.data.name)) {
+		await Promise.all([match.data.load(), loadSyntaxHighlight()])
+		return
+	}
 	await match.data.load()
 }
 

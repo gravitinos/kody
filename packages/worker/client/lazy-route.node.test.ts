@@ -3,6 +3,7 @@ import {
 	clientRouteAreaNameForPath,
 	createLazyRoute,
 	createLazyRouteArea,
+	syntaxHighlightAreaNames,
 } from '#client/lazy-route.tsx'
 import { clientRouteLoaders, clientRoutes } from '#client/routes/index.tsx'
 import { oauthPaths } from '#universal/oauth-paths.ts'
@@ -15,20 +16,7 @@ import { routes } from '#universal/routes.ts'
  * either be eager or resolve to a registered lazy area.
  */
 
-const eagerPatterns = new Set([
-	routePattern(routes.home),
-	routePattern(routes.login),
-	routePattern(routes.signup),
-	routePattern(routes.pricing),
-	routePattern(routes.privacy),
-	routePattern(routes.terms),
-	routePattern(routes.resetPassword),
-	routePattern(routes.verify),
-	routePattern(routes.verifyEmail),
-	routePattern(routes.verifyEmailChange),
-	routePattern(routes.pendingVerification),
-	oauthPaths.callback,
-])
+const eagerPatterns = new Set([routePattern(routes.home), oauthPaths.callback])
 
 function concretePathForPattern(pattern: string) {
 	return pattern
@@ -40,6 +28,15 @@ function concretePathForPattern(pattern: string) {
 		})
 		.join('/')
 }
+
+test('syntax highlight areas stay a subset of registered lazy areas', () => {
+	expect([...syntaxHighlightAreaNames].sort()).toEqual([
+		'account-area',
+		'blog-area',
+		'community-area',
+		'onboarding-area',
+	])
+})
 
 test('every non-eager route pattern resolves to a registered lazy area', () => {
 	const patterns = new Set([

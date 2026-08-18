@@ -136,6 +136,15 @@ router.
 `packages/worker/universal/routes.ts` to handler modules (home, auth, account,
 session, logout, password reset, health).
 
+## Anonymous marketing HTML cache
+
+`renderAppPage` sets
+`Cache-Control: public, max-age=60, stale-while-revalidate=300` and
+`Vary: Cookie` for anonymous `/`, `/pricing`, `/blog`, and `/community`. The
+response stays `no-store` when the request carries a `kody_session` cookie,
+`loadSessionInfo` resolves a session, or the response sets a cookie. Auth,
+OAuth, account, and every other HTML path stay `no-store`.
+
 ## Syntax highlighting
 
 Browser pages that show code — markdown bodies on guides, blog posts, and
@@ -146,7 +155,10 @@ regex engine, no Oniguruma WASM) with a fixed language set and GitHub light/dark
 dual themes. Tokens become Remix JSX text and inline styles, never `innerHTML`,
 so untrusted README fences stay inside the markdown safety model. Theme
 switching follows `:root[data-theme]` (and `prefers-color-scheme` when no theme
-is set) via CSS variables in `packages/worker/public/styles.css`.
+is set) via CSS variables in `packages/worker/public/styles.css`. The browser
+loads the grammars through a dynamic `syntax-highlight-core` chunk: SSR,
+hydration, and SPA preload wait for it on those areas, and the marketing entry's
+static closure does not include it.
 
 ## Client-side navigation flow
 

@@ -12,6 +12,7 @@ import {
 	type ResolvedDocumentHead,
 } from '#universal/document-head.ts'
 import { getScrollRestorationInlineScript } from '#universal/router-scroll-restoration.ts'
+import { heroBaseImage } from '#universal/landing-images.ts'
 import {
 	SENTRY_CONFIG_META_NAME,
 	type SentryClientConfig,
@@ -151,12 +152,18 @@ export function ManagedDocumentHead(
 	}
 }
 
+function isHomeDocumentUrl(url: string | undefined) {
+	if (!url) return false
+	return new URL(url, 'https://kody.local').pathname === '/'
+}
+
 export function SsrDocument(handle: Handle<SsrDocumentProps>) {
 	const clientEntryHref =
 		handle.props.clientEntryHref ?? buildClientEntryHref('dev')
 	const stylesheetHref =
 		handle.props.stylesheetHref ?? buildStylesheetHref('dev')
 	const scrollRestorationInlineScript = getScrollRestorationInlineScript()
+	const preloadHeroImage = isHomeDocumentUrl(handle.props.url)
 
 	return () => (
 		<html lang="en">
@@ -212,6 +219,19 @@ export function SsrDocument(handle: Handle<SsrDocumentProps>) {
 					href="/fonts/wix-madefor-text-latin.woff2"
 					crossOrigin="anonymous"
 				/>
+				{preloadHeroImage ? (
+					<link
+						rel="preload"
+						as="image"
+						type="image/webp"
+						href={heroBaseImage.src}
+						fetchPriority="high"
+						{...{
+							imagesrcset: heroBaseImage.srcSet,
+							imagesizes: heroBaseImage.sizes,
+						}}
+					/>
+				) : null}
 				<title>
 					{handle.props.documentHead?.title ?? handle.props.title ?? 'kody'}
 				</title>
