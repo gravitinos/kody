@@ -886,6 +886,38 @@ function shouldSyncJobSourceForUpdate(body: JobUpdateInput) {
 	)
 }
 
+function jobUpdateSharesPackageSource(input: {
+	jobId: string
+	source: { entity_kind: string } | null
+}) {
+	return (
+		packageIdFromJobId(input.jobId) != null ||
+		input.source?.entity_kind === 'package'
+	)
+}
+
+function assertPackageOwnedJobUpdateAllowsIdentityFields(input: {
+	existing: Pick<JobRecord, 'id' | 'name' | 'publishedCommit'>
+	body: JobUpdateInput
+}) {
+	const nameChanges =
+		input.body.name !== undefined &&
+		normalizeJobName(input.body.name) !== input.existing.name
+	const publishedCommitChanges =
+		input.body.publishedCommit !== undefined &&
+		input.body.publishedCommit !== input.existing.publishedCommit
+	if (
+		input.body.code === undefined &&
+		!nameChanges &&
+		!publishedCommitChanges
+	) {
+		return
+	}
+	throw new McpCallerError(
+		'Package-owned jobs cannot change name, code, or published source via job_update. Change the job entry in the package repo and publish the package.',
+	)
+}
+
 export async function createJob(input: {
 	env: Env
 	callerContext: McpCallerContext
@@ -1073,19 +1105,36 @@ export async function updateJob(input: {
 					: existing.nextRunAt,
 			}
 			if (shouldSyncJobSourceForUpdate(input.body)) {
-				const syncedPublishedCommit = await syncArtifactSourceSnapshot({
-					env: input.env,
+				const source = await getEntitySourceByIdForUser(input.env.APP_DB, {
+					id: updated.sourceId,
 					userId: callerContext.user.userId,
-					baseUrl: callerContext.baseUrl,
-					sourceId: updated.sourceId,
-					bootstrapAccess: null,
-					files: buildJobSourceFiles({
-						job: toJobView(updated),
-						moduleSource: shape.moduleSource ?? null,
-					}),
 				})
-				if (syncedPublishedCommit) {
-					updated.publishedCommit = syncedPublishedCommit
+				// Package-owned jobs share the package entity source. Metadata
+				// updates (schedule, timezone, params, enabled) must not
+				// force-publish that source: the overwrite safety policy refuses
+				// it, and writing kody.json / src/job.ts into the package repo
+				// would be destructive. Name, code, and publishedCommit stay
+				// with the package repo + publish.
+				if (jobUpdateSharesPackageSource({ jobId: existing.id, source })) {
+					assertPackageOwnedJobUpdateAllowsIdentityFields({
+						existing,
+						body: input.body,
+					})
+				} else {
+					const syncedPublishedCommit = await syncArtifactSourceSnapshot({
+						env: input.env,
+						userId: callerContext.user.userId,
+						baseUrl: callerContext.baseUrl,
+						sourceId: updated.sourceId,
+						bootstrapAccess: null,
+						files: buildJobSourceFiles({
+							job: toJobView(updated),
+							moduleSource: shape.moduleSource ?? null,
+						}),
+					})
+					if (syncedPublishedCommit) {
+						updated.publishedCommit = syncedPublishedCommit
+					}
 				}
 			}
 			const nextCallerContextJson = serializeCallerContext(callerContext)
