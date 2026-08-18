@@ -216,16 +216,13 @@ test('logMcpEvent keeps sandbox and caller failures off Sentry and still reports
 
 		logMcpEvent({
 			...callerFailureBase,
-			capabilityName: 'remote:home:bond_shade_set_position',
-			domain: 'remote:home',
-			capabilitySource: 'remote-connector',
+			capabilityName: 'mcp:home:bond_shade_set_position',
+			domain: 'mcp:home',
+			capabilitySource: 'mcp-server',
 			failurePhase: 'handler',
 			errorName: 'Error',
-			errorMessage:
-				'The connector "home" is not connected. Kody cannot use this connector until it reconnects. Ask the user to start or reconnect the connector and then try again.',
-			cause: new Error(
-				'The connector "home" is not connected. Kody cannot use this connector until it reconnects. Ask the user to start or reconnect the connector and then try again.',
-			),
+			errorMessage: 'MCP server "home" is not connected.',
+			cause: new McpCallerError('MCP server "home" is not connected.'),
 		})
 
 		// User SQL against a storage bucket (KODY-CLOUDFLARE-44). Plain Error
@@ -357,15 +354,14 @@ test('logMcpEvent keeps sandbox and caller failures off Sentry and still reports
 
 		logMcpEvent({
 			...callerFailureBase,
-			capabilityName: 'remote:home:bond_shade_set_position',
-			domain: 'remote:home',
-			capabilitySource: 'remote-connector',
+			capabilityName: 'mcp:home:bond_shade_set_position',
+			domain: 'mcp:home',
+			capabilitySource: 'mcp-server',
 			failurePhase: 'handler',
 			errorName: 'Error',
-			errorMessage:
-				'Remote capability "home:bond_shade_set_position" failed: timeout',
+			errorMessage: 'MCP tool "home:bond_shade_set_position" failed: timeout',
 			cause: new Error(
-				'Remote capability "home:bond_shade_set_position" failed: timeout',
+				'MCP tool "home:bond_shade_set_position" failed: timeout',
 			),
 		})
 	})
@@ -382,8 +378,7 @@ test('logMcpEvent keeps sandbox and caller failures off Sentry and still reports
 	expect(sentryMock.captureException).toHaveBeenNthCalledWith(
 		3,
 		expect.objectContaining({
-			message:
-				'Remote capability "home:bond_shade_set_position" failed: timeout',
+			message: 'MCP tool "home:bond_shade_set_position" failed: timeout',
 		}),
 	)
 	expect(sentryMock.scope.setLevel).toHaveBeenCalledWith('error')

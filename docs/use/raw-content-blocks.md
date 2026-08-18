@@ -36,13 +36,12 @@ normal structured data, return plain values and let `execute` serialize them.
   KB WebP is roughly ~177 KB of JSON and fits; oversized protocol content fails
   explicitly instead of being truncated into unusable JSON text.
 
-## Downstream MCP servers and remote connectors
+## Downstream MCP servers
 
-When execute code calls a user-added MCP server (`kody.mcp[...]`) or remote
-connector (`kody.remote[...]`) and returns that capability result directly, Kody
-preserves protocol-valid MCP content blocks from the downstream tool — including
-`image`, `audio`, `resource`, and `resource_link` — and passes them through to
-the upstream MCP client.
+When execute code calls a user-added MCP server (`kody.mcp[...]`) and returns
+that capability result directly, Kody preserves protocol-valid MCP content
+blocks from the downstream tool — including `image`, `audio`, `resource`, and
+`resource_link` — and passes them through to the upstream MCP client.
 
 If the downstream tool returns both `structuredContent` and non-text `content`,
 structured data stays available for code (and in execute’s

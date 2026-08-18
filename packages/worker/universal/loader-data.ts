@@ -953,26 +953,6 @@ export type AccountMcpServersLoaderData = {
 	servers: Array<AccountMcpServerListItem>
 }
 
-export type AccountRemoteConnectorListItem = {
-	id: string
-	instanceId: string
-	connectorUrl: string
-	enabled: boolean
-	attached: boolean
-	hasSharedSecret: boolean
-	sharedSecret: string
-	createdAt: string
-	updatedAt: string
-}
-
-export type AccountRemoteConnectorsLoaderData = {
-	ok: true
-	email: string
-	username: string
-	connectorUrlOrigin: string
-	connectors: Array<AccountRemoteConnectorListItem>
-}
-
 export type AccountPackageInvocationTokenListItem = {
 	id: string
 	name: string
@@ -1473,7 +1453,6 @@ export type AppLoaderData = {
 	accountPasskeys?: AccountPasskeysLoaderData
 	accountIntegrations?: AccountIntegrationsLoaderData
 	accountMcpServers?: AccountMcpServersLoaderData
-	accountRemoteConnectors?: AccountRemoteConnectorsLoaderData
 	accountPackageInvocationTokens?: AccountPackageInvocationTokensLoaderData
 	accountPackages?: AccountPackagesLoaderData
 	accountSecrets?: AccountSecretsLoaderData

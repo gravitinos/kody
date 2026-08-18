@@ -31,19 +31,7 @@ export type CapabilityJsonSchema = JsonSchemaToolDescriptor['inputSchema']
 // Capability authors may provide Zod or raw JSON Schema.
 export type CapabilitySchemaDefinition = CapabilityJsonSchema | ZodType
 
-export type CapabilitySource =
-	| 'builtin'
-	| 'remote-connector'
-	| 'mcp-server'
-	| 'openapi'
-
-export type CapabilityRemoteConnectorMetadata = {
-	instanceId: string
-	connectorId: string
-	connectorName: string
-	mcpToolName: string
-	toolName: string
-}
+export type CapabilitySource = 'builtin' | 'mcp-server' | 'openapi'
 
 export type CapabilityMcpServerMetadata = {
 	serverId: string
@@ -83,7 +71,6 @@ export type CapabilityDefinition<
 	requiredPermission?: PermissionString
 	featureFlag?: FeatureFlagKey
 	source?: CapabilitySource
-	remoteConnector?: CapabilityRemoteConnectorMetadata
 	mcpServer?: CapabilityMcpServerMetadata
 	openApi?: CapabilityOpenApiMetadata
 	inputSchema: TInputSchema
@@ -111,7 +98,6 @@ export type Capability = {
 	requiredPermission?: PermissionString
 	featureFlag?: FeatureFlagKey
 	source: CapabilitySource
-	remoteConnector?: CapabilityRemoteConnectorMetadata
 	mcpServer?: CapabilityMcpServerMetadata
 	openApi?: CapabilityOpenApiMetadata
 	inputSchema: CapabilityJsonSchema
@@ -136,7 +122,6 @@ export type CapabilitySpec = {
 	requiredPermission?: PermissionString
 	featureFlag?: FeatureFlagKey
 	source: CapabilitySource
-	remoteConnector?: CapabilityRemoteConnectorMetadata
 	mcpServer?: CapabilityMcpServerMetadata
 	openApi?: CapabilityOpenApiMetadata
 	inputFields: Array<string>

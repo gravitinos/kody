@@ -34,16 +34,6 @@ const mockModule = vi.hoisted(() => ({
 		results: [],
 		warnings: [],
 	})),
-	getRemoteConnectorStatus: vi.fn(async () => ({
-		connectorId: 'home',
-		state: 'connected',
-		connected: true,
-		toolCount: 1,
-		message: 'connected',
-		error: null,
-		connectedAt: null,
-		lastSeenAt: null,
-	})),
 	searchCommunityListings: vi.fn(async () => []),
 }))
 
@@ -109,11 +99,6 @@ vi.mock('#worker/package-retrievers/service.ts', () => ({
 		mockModule.runPackageRetrievers(...args),
 }))
 
-vi.mock('#worker/remote-connector/status.ts', () => ({
-	getRemoteConnectorStatus: (...args: Array<unknown>) =>
-		mockModule.getRemoteConnectorStatus(...args),
-}))
-
 vi.mock('#worker/community/service.ts', () => ({
 	searchCommunityListings: (...args: Array<unknown>) =>
 		mockModule.searchCommunityListings(...args),
@@ -172,7 +157,6 @@ async function getSearchRegistration(input?: {
 		getCallerContext: vi.fn(() => ({
 			baseUrl: 'https://example.com',
 			user: input?.user === undefined ? null : input.user,
-			remoteConnectors: [{ instanceId: 'home' }],
 		})),
 	} as never)
 

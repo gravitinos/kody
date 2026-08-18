@@ -7,8 +7,8 @@ How Kody stores your data and what a deployment admin can see.
 Each signed-in user gets a fully isolated assistant. Kody stores account profile
 information (email, username, optional display name and bio, and profile
 visibility), secrets, values, memories, packages and their source, jobs, email
-inboxes and messages, durable storage, remote connector configuration, OAuth
-grants, package invocation tokens, short-lived execution history (see
+inboxes and messages, durable storage, MCP server configuration, OAuth grants,
+package invocation tokens, short-lived execution history (see
 [Activity](./activity.md)), community social graph edges (follows, listing
 stars, and stored activity events), and any platform feedback you approve for
 submission. All of this remains scoped to your account except for content you
@@ -103,8 +103,7 @@ does not let admins browse:
 - Email inboxes and messages
 - Inbound webhook endpoints and delivery logs
 - Durable storage contents
-- Remote connector configuration
-- OAuth grants
+- Connected MCP server configuration and OAuth grants
 
 None of these stores appears in an admin endpoint, page, or API payload — not
 even in redacted or count form — with one qualified exception: platform

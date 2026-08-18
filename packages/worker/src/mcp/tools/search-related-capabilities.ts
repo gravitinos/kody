@@ -49,15 +49,6 @@ function sameSynthesizedProvider(
 	if (left.source === 'mcp-server' && left.mcpServer && right.mcpServer) {
 		return left.mcpServer.kodyName === right.mcpServer.kodyName
 	}
-	if (
-		left.source === 'remote-connector' &&
-		left.remoteConnector &&
-		right.remoteConnector
-	) {
-		return (
-			left.remoteConnector.connectorName === right.remoteConnector.connectorName
-		)
-	}
 	return false
 }
 
@@ -68,11 +59,7 @@ export function collectRelatedCapabilityOperations(input: {
 	registry: Awaited<ReturnType<typeof getCapabilityRegistryForContext>>
 }): Array<RelatedCapabilityOperation> {
 	const { spec, registry } = input
-	if (
-		spec.source !== 'openapi' &&
-		spec.source !== 'mcp-server' &&
-		spec.source !== 'remote-connector'
-	) {
+	if (spec.source !== 'openapi' && spec.source !== 'mcp-server') {
 		return []
 	}
 	return Object.values(registry.capabilitySpecs)

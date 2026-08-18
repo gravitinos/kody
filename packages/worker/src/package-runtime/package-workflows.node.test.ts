@@ -27,10 +27,6 @@ const invocationMocks = vi.hoisted(() => ({
 	createPackageRuntimeInvokeTools: vi.fn(() => ({ invoke: vi.fn() })),
 }))
 
-const remoteConnectorMocks = vi.hoisted(() => ({
-	listAttachedRemoteConnectorRefs: vi.fn(async () => []),
-}))
-
 const runRecordMocks = vi.hoisted(() => {
 	const projectionsByUser = new Map<
 		string,
@@ -285,11 +281,6 @@ vi.mock('#worker/package-invocations/service.ts', () => ({
 		invocationMocks.createExecutePackageInvokeTools(...args),
 	createPackageRuntimeInvokeTools: (...args: Array<unknown>) =>
 		invocationMocks.createPackageRuntimeInvokeTools(...args),
-}))
-
-vi.mock('#worker/remote-connector/settings-service.ts', () => ({
-	listAttachedRemoteConnectorRefs: (...args: Array<unknown>) =>
-		remoteConnectorMocks.listAttachedRemoteConnectorRefs(...args),
 }))
 
 vi.mock('#mcp/run-kody-registry.ts', () => ({
@@ -903,124 +894,6 @@ test('package-created inline workflows retain package secret authorization conte
 	)
 })
 
-test('DynamicCallableWorkflowBase restores attached remote connectors for inline code and package exports', async () => {
-	runRecordMocks.resetProjections()
-	const remoteConnectors = [{ instanceId: 'home' }]
-	const stepDo = vi.fn(
-		async (_name: string, _config: unknown, callback: () => unknown) =>
-			await callback(),
-	)
-
-	const inlineBinding = createStatefulWorkflowBinding()
-	const inlineEnv = {
-		APP_DB: createWorkflowRunsDatabase(),
-		DYNAMIC_CALLABLE_WORKFLOWS: inlineBinding.workflow,
-		APP_BASE_URL: 'https://app.example.com',
-	} as Env
-	const inlineCreated = await createDynamicCallableWorkflow({
-		env: inlineEnv,
-		userId: 'user-1',
-		packageContext: null,
-		body: {
-			code: 'export default async function main(){ return { ok: true }; }',
-			runAt: '2026-05-03T12:34:56.000Z',
-			idempotencyKey: 'execute-remote-connector-smoke',
-		},
-	})
-	const inlineQueued = inlineBinding.instances.get(inlineCreated.id)
-	if (!inlineQueued?.params)
-		throw new Error('Expected queued workflow payload.')
-	invocationMocks.runModuleWithRegistry.mockReset()
-	invocationMocks.runModuleWithRegistry.mockResolvedValueOnce({
-		result: { ok: true },
-		logs: [],
-	})
-	remoteConnectorMocks.listAttachedRemoteConnectorRefs.mockResolvedValueOnce(
-		remoteConnectors,
-	)
-	await new DynamicCallableWorkflowBase({} as ExecutionContext, inlineEnv).run(
-		{
-			payload: inlineQueued.params as never,
-			timestamp: new Date(),
-			instanceId: inlineCreated.id,
-		},
-		{ sleepUntil: vi.fn(), do: stepDo } as unknown as WorkflowStep,
-	)
-	expect(
-		remoteConnectorMocks.listAttachedRemoteConnectorRefs,
-	).toHaveBeenCalledWith({
-		env: inlineEnv,
-		userId: 'user-1',
-	})
-	expect(invocationMocks.runModuleWithRegistry).toHaveBeenCalledWith(
-		expect.any(Object),
-		expect.objectContaining({ remoteConnectors }),
-		expect.any(String),
-		undefined,
-		{
-			packageContext: null,
-			packageInvokeTools: expect.objectContaining({
-				invoke: expect.any(Function),
-			}),
-			executorTimeoutMs: workflowExecutorTimeoutMs,
-		},
-	)
-
-	const packageBinding = createStatefulWorkflowBinding()
-	const packageEnv = {
-		APP_DB: createWorkflowRunsDatabase(),
-		DYNAMIC_CALLABLE_WORKFLOWS: packageBinding.workflow,
-		APP_BASE_URL: 'https://app.example.com',
-	} as Env
-	const packageCreated = await createDynamicCallableWorkflow({
-		env: packageEnv,
-		userId: 'user-1',
-		packageContext: null,
-		body: {
-			packageId: 'pkg-1',
-			exportName: './workflow-run-event',
-			runAt: '2026-05-03T12:34:56.000Z',
-			idempotencyKey: 'package-remote-connector-smoke',
-			params: { key: 'north-east-open' },
-		},
-	})
-	const packageQueued = packageBinding.instances.get(packageCreated.id)
-	if (!packageQueued?.params)
-		throw new Error('Expected queued workflow payload.')
-	invocationMocks.invokePackageExport.mockReset()
-	invocationMocks.invokePackageExport.mockResolvedValueOnce({
-		status: 200,
-		body: { result: { ok: true } },
-	})
-	remoteConnectorMocks.listAttachedRemoteConnectorRefs.mockResolvedValueOnce(
-		remoteConnectors,
-	)
-	await new DynamicCallableWorkflowBase({} as ExecutionContext, packageEnv).run(
-		{
-			payload: packageQueued.params as never,
-			timestamp: new Date(),
-			instanceId: packageCreated.id,
-		},
-		{ sleepUntil: vi.fn(), do: stepDo } as unknown as WorkflowStep,
-	)
-	expect(
-		remoteConnectorMocks.listAttachedRemoteConnectorRefs,
-	).toHaveBeenCalledWith({
-		env: packageEnv,
-		userId: 'user-1',
-	})
-	expect(invocationMocks.invokePackageExport).toHaveBeenCalledWith(
-		expect.objectContaining({
-			token: expect.objectContaining({ remoteConnectors }),
-			ephemeral: true,
-			executorTimeoutMs: workflowExecutorTimeoutMs,
-			request: expect.objectContaining({
-				idempotencyKey: null,
-			}),
-		}),
-	)
-})
-
 test('DynamicCallableWorkflowBase marks package export error responses as workflow errors', async () => {
 	runRecordMocks.resetProjections()
 	const binding = createStatefulWorkflowBinding()
@@ -1051,7 +924,7 @@ test('DynamicCallableWorkflowBase marks package export error responses as workfl
 			ok: false,
 			error: {
 				message:
-					'Shade workflow event failed: Tool "kody.remote[\\"home\\"].bond_shade_set_position" not found',
+					'Shade workflow event failed: Tool "kody.mcp[\\"home\\"].bond_shade_set_position" not found',
 			},
 		},
 	})
@@ -1070,14 +943,14 @@ test('DynamicCallableWorkflowBase marks package export error responses as workfl
 			},
 			{ sleepUntil: vi.fn(), do: stepDo } as unknown as WorkflowStep,
 		),
-	).rejects.toThrow('kody.remote[\\"home\\"].bond_shade_set_position')
+	).rejects.toThrow('kody.mcp[\\"home\\"].bond_shade_set_position')
 	expect(
 		runRecordMocks.listForUser('user-1').find((row) => row.id === created.id),
 	).toMatchObject({
 		status: 'errored',
 		completedAt: expect.any(String),
 		lastError: expect.stringContaining(
-			'kody.remote[\\"home\\"].bond_shade_set_position',
+			'kody.mcp[\\"home\\"].bond_shade_set_position',
 		),
 	})
 })
@@ -1286,79 +1159,6 @@ test('inline workflow records exactly one workflow run with workflowId', async (
 	expect(runRecordMocks.finishRunRecord).toHaveBeenCalledWith(
 		expect.objectContaining({ status: 'success' }),
 	)
-})
-
-test('package workflow records failures before the inner invocation starts', async () => {
-	runRecordMocks.resetProjections()
-	runRecordMocks.beginRunRecord.mockClear()
-	runRecordMocks.finishRunRecord.mockClear()
-	const binding = createStatefulWorkflowBinding()
-	const db = createWorkflowRunsDatabase()
-	const env = {
-		APP_DB: db,
-		DYNAMIC_CALLABLE_WORKFLOWS: binding.workflow,
-		APP_BASE_URL: 'https://app.example.com',
-	} as Env
-	const created = await createDynamicCallableWorkflow({
-		env,
-		userId: 'user-1',
-		packageContext: null,
-		body: {
-			packageId: 'pkg-1',
-			exportName: './workflow-run-event',
-			runAt: '2026-05-03T12:34:56.000Z',
-			idempotencyKey: 'package-pre-invocation-failure',
-		},
-	})
-	const queued = binding.instances.get(created.id)
-	if (!queued?.params) throw new Error('Expected queued workflow payload.')
-	remoteConnectorMocks.listAttachedRemoteConnectorRefs.mockReset()
-	remoteConnectorMocks.listAttachedRemoteConnectorRefs.mockResolvedValue([])
-	invocationMocks.invokePackageExport.mockReset()
-	remoteConnectorMocks.listAttachedRemoteConnectorRefs.mockRejectedValueOnce(
-		new Error('remote connector lookup failed'),
-	)
-	const stepDo = vi.fn(
-		async (_name: string, _config: unknown, callback: () => unknown) =>
-			await callback(),
-	)
-	await expect(
-		new DynamicCallableWorkflowBase(
-			{ waitUntil: vi.fn() } as unknown as ExecutionContext,
-			env,
-		).run(
-			{
-				payload: queued.params as never,
-				timestamp: new Date(),
-				instanceId: created.id,
-			},
-			{ sleepUntil: vi.fn(), do: stepDo } as unknown as WorkflowStep,
-		),
-	).rejects.toThrow('remote connector lookup failed')
-	expect(invocationMocks.invokePackageExport).not.toHaveBeenCalled()
-	expect(runRecordMocks.beginRunRecord).toHaveBeenCalledTimes(1)
-	expect(runRecordMocks.beginRunRecord).toHaveBeenCalledWith(
-		expect.objectContaining({
-			context: expect.objectContaining({
-				surface: 'workflow',
-				workflowId: created.id,
-			}),
-		}),
-	)
-	expect(runRecordMocks.finishRunRecord).toHaveBeenCalledWith(
-		expect.objectContaining({
-			status: 'error',
-			error: expect.objectContaining({
-				message: 'remote connector lookup failed',
-			}),
-		}),
-	)
-	expect(
-		runRecordMocks.listForUser('user-1').find((row) => row.id === created.id),
-	).toMatchObject({
-		status: 'errored',
-		lastError: 'remote connector lookup failed',
-	})
 })
 
 test('package workflow sandbox and 4xx failures throw UserCodeError', async () => {

@@ -238,10 +238,6 @@
 							"class_name": "MCP"
 						},
 						{
-							"name": "REMOTE_CONNECTOR_SESSION",
-							"class_name": "RemoteConnectorSession"
-						},
-						{
 							"name": "MCP_CLIENT_HUB",
 							"class_name": "McpClientHub"
 						},
@@ -299,10 +295,6 @@
 							"class_name": "MCP"
 						},
 						{
-							"name": "REMOTE_CONNECTOR_SESSION",
-							"class_name": "RemoteConnectorSession"
-						},
-						{
 							"name": "MCP_CLIENT_HUB",
 							"class_name": "McpClientHub"
 						},
@@ -358,10 +350,6 @@
 						{
 							"name": "MCP_OBJECT",
 							"class_name": "MCP"
-						},
-						{
-							"name": "REMOTE_CONNECTOR_SESSION",
-							"class_name": "RemoteConnectorSession"
 						},
 						{
 							"name": "MCP_CLIENT_HUB",
@@ -488,11 +476,6 @@
 							"script_name": "kody"
 						},
 						{
-							"name": "REMOTE_CONNECTOR_SESSION",
-							"class_name": "RemoteConnectorSession",
-							"script_name": "kody"
-						},
-						{
 							"name": "MCP_CLIENT_HUB",
 							"class_name": "McpClientHub",
 							"script_name": "kody"
@@ -541,11 +524,6 @@
 						{
 							"name": "MCP_OBJECT",
 							"class_name": "MCP",
-							"script_name": "kody"
-						},
-						{
-							"name": "REMOTE_CONNECTOR_SESSION",
-							"class_name": "RemoteConnectorSession",
 							"script_name": "kody"
 						},
 						{

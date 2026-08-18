@@ -8,7 +8,6 @@ import {
 	errorFields,
 	logMcpEvent,
 } from '#mcp/observability.ts'
-import { type RemoteConnectorStatus } from '#worker/remote-connector/status.ts'
 
 import {
 	escapeMarkdownText,
@@ -33,11 +32,7 @@ import {
 	type SearchResultStructuredContent,
 	toSlimStructuredMatches,
 } from './search-format.ts'
-import {
-	loadDownRemoteConnectorStatuses,
-	loadSearchRowsAndRegistry,
-	serializeRemoteConnectorStatus,
-} from './search-loaders.ts'
+import { loadSearchRowsAndRegistry } from './search-loaders.ts'
 import {
 	applyMaxResponseSize,
 	truncateSearchText,
@@ -124,7 +119,6 @@ export async function runSearchTool(input: {
 			: defaultSearchLimit)
 	const maxResponseSize = args.maxResponseSize ?? defaultMaxResponseSize
 	let warnings: Array<string> = []
-	let remoteConnectorDownStatuses: Array<RemoteConnectorStatus> = []
 	let username: string | null = null
 	const endToEndPhaseTimings: Partial<SearchPhaseTimings> = {}
 
@@ -145,7 +139,6 @@ export async function runSearchTool(input: {
 			})
 			username = execution.username
 			warnings = execution.warnings
-			remoteConnectorDownStatuses = execution.remoteConnectorStatuses
 			Object.assign(endToEndPhaseTimings, execution.phaseTimings)
 			return {
 				mode: 'list' as const,
@@ -170,14 +163,6 @@ export async function runSearchTool(input: {
 			return rows
 		})
 		const [searchRows] = await Promise.all([rowsPromise])
-		const remoteConnectorStatusStart = performance.now()
-		remoteConnectorDownStatuses = await loadDownRemoteConnectorStatuses({
-			env: agent.getEnv(),
-			callerContext,
-		})
-		endToEndPhaseTimings.remoteConnectorStatusMs = elapsedMs(
-			remoteConnectorStatusStart,
-		)
 		warnings = searchRows.warnings
 
 		if (Array.isArray(args.entity)) {
@@ -395,10 +380,6 @@ export async function runSearchTool(input: {
 			}
 		}
 
-		const normalizedRemoteConnectorStatuses =
-			remoteConnectorDownStatuses.length > 0
-				? remoteConnectorDownStatuses.map(serializeRemoteConnectorStatus)
-				: undefined
 		const execution = outcome.execution
 		const searchMemories = execution.memorySettlement.memories
 		const structuredWarnings = [...warnings]
@@ -406,20 +387,9 @@ export async function runSearchTool(input: {
 		const payload: {
 			matches: Array<SearchMatch>
 			offline: boolean
-			remoteConnectorStatuses?: Array<{
-				connectorId: string
-				state: string
-				connected: boolean
-				toolCount: number
-			}>
 		} = {
 			matches: execution.result.matches,
 			offline: execution.result.offline,
-			...(normalizedRemoteConnectorStatuses
-				? {
-						remoteConnectorStatuses: normalizedRemoteConnectorStatuses,
-					}
-				: {}),
 		}
 		const statefulAgent = agent as McpRegistrationAgent & {
 			state?: {
@@ -443,7 +413,7 @@ export async function runSearchTool(input: {
 			!searchConversationIdsWithPreamble.includes(conversationId)
 		if (includePreamble && typeof statefulAgent.setState === 'function') {
 			statefulAgent.setState({
-				...(statefulAgent.state ?? {}),
+				...statefulAgent.state,
 				searchConversationIdsWithPreamble: [
 					...searchConversationIdsWithPreamble,
 					conversationId,
@@ -483,7 +453,7 @@ export async function runSearchTool(input: {
 				structuredWarnings.push(notice)
 				if (typeof statefulAgent.setState === 'function') {
 					statefulAgent.setState({
-						...(statefulAgent.state ?? {}),
+						...statefulAgent.state,
 						onboardingNoticeConversationIds: [
 							...onboardingNoticeConversationIds,
 							conversationId,
@@ -538,11 +508,6 @@ export async function runSearchTool(input: {
 			...(searchMemories
 				? {
 						memories: searchMemories,
-					}
-				: {}),
-			...(trimmedPayload.remoteConnectorStatuses
-				? {
-						remoteConnectorStatuses: trimmedPayload.remoteConnectorStatuses,
 					}
 				: {}),
 			matches: toSlimStructuredMatches({

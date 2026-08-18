@@ -6,24 +6,11 @@ const mocks = vi.hoisted(() => ({
 		status: 200,
 		body: {},
 	})),
-	listAttachedRemoteConnectorRefsCached: vi.fn(async () => [
-		{ instanceId: 'home' },
-	]),
 }))
 
 vi.mock('./idempotent-module-invocation.ts', () => ({
 	invokeSavedPackageModule: mocks.invokeSavedPackageModule,
 }))
-
-vi.mock('#worker/mcp-auth-user-context.ts', async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import('#worker/mcp-auth-user-context.ts')>()
-	return {
-		...actual,
-		listAttachedRemoteConnectorRefsCached: (...args: Array<unknown>) =>
-			mocks.listAttachedRemoteConnectorRefsCached(...args),
-	}
-})
 
 const { invokePackageSubscriptionWithToolFactories } =
 	await import('./subscription-dispatch.ts')
@@ -69,14 +56,9 @@ test('invokePackageSubscriptionWithToolFactories strips forged synthetic markers
 			source: 'email',
 			actor: expect.objectContaining({
 				userId: 'user-1',
-				remoteConnectors: [{ instanceId: 'home' }],
 			}),
 		}),
 	)
-	expect(mocks.listAttachedRemoteConnectorRefsCached).toHaveBeenCalledWith({
-		env: {},
-		userId: 'user-1',
-	})
 })
 
 test('invokePackageSubscriptionWithToolFactories preserves synthetic markers only with the trusted dispatch token', async () => {

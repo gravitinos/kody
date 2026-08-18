@@ -1,6 +1,5 @@
 import { WorkerEntrypoint, exports as workerExports } from 'cloudflare:workers'
 import { createMcpCallerContext } from '#mcp/context.ts'
-import { listAttachedRemoteConnectorRefsCached } from '#worker/mcp-auth-user-context.ts'
 import {
 	getPackageAppEntryPath,
 	parseAuthoredPackageJson,
@@ -127,25 +126,6 @@ function buildFacetClassExportName(rawFacetName) {
 }
 
 function createKodyProxy(runtimeBridge) {
-	const remote = new Proxy({}, {
-		get(_target, connectorName) {
-			if (typeof connectorName !== 'string' || connectorName === 'then') {
-				return undefined;
-			}
-			return new Proxy({}, {
-				get(_connectorTarget, capabilityName) {
-					if (typeof capabilityName !== 'string' || capabilityName === 'then') {
-						return undefined;
-					}
-					return async (args = {}) =>
-						await runtimeBridge.callCapability({
-							name: \`remote:\${connectorName}:\${capabilityName}\`,
-							args,
-						});
-				},
-			});
-		},
-	});
 	const mcp = new Proxy({}, {
 		get(_target, serverName) {
 			if (typeof serverName !== 'string' || serverName === 'then') {
@@ -168,13 +148,7 @@ function createKodyProxy(runtimeBridge) {
 	return new Proxy({}, {
 		get(_target, property) {
 			if (typeof property !== 'string' || property === 'then') return undefined;
-			if (property === 'remote') return remote;
 			if (property === 'mcp') return mcp;
-			if (property.startsWith('remote:')) {
-				throw new Error(
-					\`Remote connector capability "\${property}" is not available as a flat kody function. Use kody.remote[connectorName].capabilityName(input) instead.\`,
-				);
-			}
 			if (property.startsWith('mcp:')) {
 				throw new Error(
 					\`MCP server tool "\${property}" is not available as a flat kody function. Use kody.mcp[serverName].toolName(input) instead.\`,
@@ -835,12 +809,6 @@ export class PackageAppRuntimeBridge extends WorkerEntrypoint<
 		createExecutionSecretRedactor()
 
 	private async createCallerContext(storageId: string | null) {
-		const remoteConnectors = [
-			...(await listAttachedRemoteConnectorRefsCached({
-				env: this.env,
-				userId: this.ctx.props.userId,
-			})),
-		]
 		return createMcpCallerContext({
 			baseUrl: this.ctx.props.baseUrl,
 			executionOrigin: 'background',
@@ -850,7 +818,6 @@ export class PackageAppRuntimeBridge extends WorkerEntrypoint<
 				username: undefined,
 				displayName: this.ctx.props.displayName,
 			},
-			remoteConnectors,
 			storageContext: {
 				sessionId: null,
 				appId: this.ctx.props.packageId,
