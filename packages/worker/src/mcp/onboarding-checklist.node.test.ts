@@ -29,8 +29,37 @@ function createEnv() {
 
 const userId = 'a'.repeat(64)
 
+async function seedUser(db: D1Database, stableUserId = userId) {
+	await db
+		.prepare(
+			`INSERT INTO users (username, email, password_hash, email_verified_at, stable_user_id)
+			 VALUES (?, ?, ?, ?, ?)`,
+		)
+		.bind(
+			`user-${stableUserId.slice(0, 8)}`,
+			`${stableUserId.slice(0, 8)}@example.test`,
+			'test-password-hash',
+			new Date().toISOString(),
+			stableUserId,
+		)
+		.run()
+}
+
+async function readDismissedAt(db: D1Database, stableUserId = userId) {
+	const row = await db
+		.prepare(
+			`SELECT onboarding_checklist_dismissed_at
+			 FROM users
+			 WHERE stable_user_id = ?`,
+		)
+		.bind(stableUserId)
+		.first<{ onboarding_checklist_dismissed_at: string | null }>()
+	return row?.onboarding_checklist_dismissed_at ?? null
+}
+
 test('checklist derives from stored signals, fails open on missing bindings, and dismissal round-trips', async () => {
 	const { env } = createEnv()
+	await seedUser(env.APP_DB)
 
 	const fresh = await deriveOnboardingChecklist({
 		env,
@@ -97,14 +126,16 @@ test('checklist derives from stored signals, fails open on missing bindings, and
 	expect(doneById['connect-integration']).toBe(true)
 	expect(progressed.complete).toBe(false)
 
-	// Dismissal is a user-scoped value that round-trips.
+	// Dismissal writes the users column and round-trips without a leftover value.
 	expect(await readOnboardingChecklistDismissed({ env, userId })).toBe(false)
 	await dismissOnboardingChecklist({ env, userId })
 	expect(await readOnboardingChecklistDismissed({ env, userId })).toBe(true)
+	expect(await readDismissedAt(env.APP_DB)).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 })
 
 test('search onboarding notice points at /onboarding and goes quiet after dismissal', async () => {
 	const { env } = createEnv()
+	await seedUser(env.APP_DB)
 
 	const notice = await buildOnboardingSearchNotice({
 		env,
@@ -143,4 +174,35 @@ test('first-win Send is done when email_send meter counts even without mailbox',
 	expect(
 		await userHasSentWelcomeEmail({ env, userId: 'b'.repeat(64), now }),
 	).toBe(false)
+})
+
+test('leftover onboardingChecklistDismissed value copies onto the users column', async () => {
+	const { env } = createEnv()
+	await seedUser(env.APP_DB)
+	await env.APP_DB.prepare(
+		`INSERT INTO value_buckets (id, user_id, scope, binding_key, created_at, updated_at)
+		 VALUES (?, ?, 'user', '', ?, ?)`,
+	)
+		.bind(
+			'vb-onboarding',
+			userId,
+			'2026-08-01T00:00:00.000Z',
+			'2026-08-01T00:00:00.000Z',
+		)
+		.run()
+	await env.APP_DB.prepare(
+		`INSERT INTO value_entries (bucket_id, name, description, value, created_at, updated_at)
+		 VALUES (?, 'onboardingChecklistDismissed', '', ?, ?, ?)`,
+	)
+		.bind(
+			'vb-onboarding',
+			'2026-08-01T12:00:00.000Z',
+			'2026-08-01T12:00:00.000Z',
+			'2026-08-01T12:00:00.000Z',
+		)
+		.run()
+
+	expect(await readDismissedAt(env.APP_DB)).toBe(null)
+	expect(await readOnboardingChecklistDismissed({ env, userId })).toBe(true)
+	expect(await readDismissedAt(env.APP_DB)).toBe('2026-08-01T12:00:00.000Z')
 })

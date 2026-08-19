@@ -59,6 +59,10 @@
 		{
 			"filename": "0014-drop-remote-connector-settings.sql",
 			"sha256": "5a170f05dffc793f94b01bffdbfb62eb11359ed54db768f5a121715317fa5536"
+		},
+		{
+			"filename": "0015-users-onboarding-checklist-dismissed-at.sql",
+			"sha256": "b3e5b3c168bdebe0f900d30e3d781f874b4850b975bf5ea0d2278114cd6d58ca"
 		}
 	]
 }

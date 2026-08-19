@@ -5,7 +5,7 @@ import {
 } from '#worker/entitlements/service.ts'
 import { listIntegrations } from '#worker/integrations/service.ts'
 import { listMemoriesByUserId } from '#mcp/memory/repo.ts'
-import { getValue, saveValue } from '#mcp/values/service.ts'
+import { getValue } from '#mcp/values/service.ts'
 import {
 	type OnboardingChecklistItem,
 	type OnboardingChecklistItemId,
@@ -13,8 +13,9 @@ import {
 
 /**
  * Derived onboarding progress. Every item is computed from data the platform
- * already stores — the only persisted state is the dismissal, kept as a
- * user-scoped value so it survives across devices and agents.
+ * already stores. Dismissal lives on `users.onboarding_checklist_dismissed_at`.
+ * Leftover `onboardingChecklistDismissed` values are copied on read until
+ * migration 0015 deletes those rows.
  */
 
 export type { OnboardingChecklistItem, OnboardingChecklistItemId }
@@ -122,31 +123,64 @@ export async function readOnboardingChecklistDismissed(input: {
 	userId: string
 }): Promise<boolean> {
 	try {
-		const value = await getValue({
+		const column = await readDismissedAtColumn(input.env.APP_DB, input.userId)
+		if (column) return true
+
+		const leftover = await getValue({
 			env: input.env,
 			userId: input.userId,
 			storageContext: userScopedStorageContext,
 			scope: 'user',
 			name: onboardingChecklistDismissedValueName,
 		})
-		return value !== null
+		if (!leftover) return false
+
+		const dismissedAt =
+			leftover.value.trim() || leftover.updatedAt || new Date().toISOString()
+		await writeDismissedAtColumn(input.env.APP_DB, input.userId, dismissedAt)
+		return true
 	} catch {
 		return false
 	}
 }
 
 export async function dismissOnboardingChecklist(input: {
-	env: Pick<Env, 'APP_DB'> & Parameters<typeof saveValue>[0]['env']
+	env: Pick<Env, 'APP_DB'>
 	userId: string
 }): Promise<void> {
-	await saveValue({
-		env: input.env,
-		userId: input.userId,
-		storageContext: userScopedStorageContext,
-		scope: 'user',
-		name: onboardingChecklistDismissedValueName,
-		value: new Date().toISOString(),
-		description:
-			'Set when the onboarding checklist is dismissed; delete this value to bring the checklist back.',
-	})
+	await writeDismissedAtColumn(
+		input.env.APP_DB,
+		input.userId,
+		new Date().toISOString(),
+	)
+}
+
+async function readDismissedAtColumn(db: D1Database, userId: string) {
+	const row = await db
+		.prepare(
+			`SELECT onboarding_checklist_dismissed_at
+			 FROM users
+			 WHERE stable_user_id = ?
+			 LIMIT 1`,
+		)
+		.bind(userId)
+		.first<{ onboarding_checklist_dismissed_at: string | null }>()
+	const dismissedAt = row?.onboarding_checklist_dismissed_at?.trim()
+	return dismissedAt ? dismissedAt : null
+}
+
+async function writeDismissedAtColumn(
+	db: D1Database,
+	userId: string,
+	dismissedAt: string,
+) {
+	await db
+		.prepare(
+			`UPDATE users
+			 SET onboarding_checklist_dismissed_at = ?,
+			     updated_at = CURRENT_TIMESTAMP
+			 WHERE stable_user_id = ?`,
+		)
+		.bind(dismissedAt, userId)
+		.run()
 }

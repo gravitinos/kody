@@ -9,7 +9,7 @@ import {
  * One-line onboarding reminder appended to `search` notices, at most once per
  * conversation (the runner tracks shown conversations in agent state) and
  * only while the derived checklist is incomplete and undismissed. When the
- * checklist completes, the dismissal value is written automatically so
+ * checklist completes, the dismissal column is written automatically so
  * established accounts stop paying the derivation on new conversations.
  */
 

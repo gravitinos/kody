@@ -23,6 +23,7 @@ export type UsersTestSchemaColumn =
 	| 'bio'
 	| 'avatar_key'
 	| 'profile_visibility'
+	| 'onboarding_checklist_dismissed_at'
 
 type UsersColumnDefinition = {
 	/** Definition used by the fresh `CREATE TABLE users`. */
@@ -76,9 +77,10 @@ const alwaysAdditiveColumns: Record<string, UsersColumnDefinition> = {
 
 /**
  * Opt-in columns. `account_type` mirrors migration 0072, the Stripe columns
- * mirror 0066, `email_verified_at` mirrors 0046, and the profile columns mirror
- * the community social migration. `CHECK` constraints are dropped from the
- * alter forms to match what the migrations do for preexisting tables.
+ * mirror 0066, `email_verified_at` mirrors 0046, the profile columns mirror
+ * the community social migration, and `onboarding_checklist_dismissed_at`
+ * mirrors 0015. `CHECK` constraints are dropped from the alter forms to match
+ * what the migrations do for preexisting tables.
  */
 const optionalColumns: Record<UsersTestSchemaColumn, UsersColumnDefinition> = {
 	email_verified_at: { create: 'TEXT' },
@@ -95,6 +97,7 @@ const optionalColumns: Record<UsersTestSchemaColumn, UsersColumnDefinition> = {
 		create: `TEXT NOT NULL DEFAULT 'public' CHECK (profile_visibility IN ('public', 'private'))`,
 		alter: `TEXT NOT NULL DEFAULT 'public'`,
 	},
+	onboarding_checklist_dismissed_at: { create: 'TEXT' },
 }
 
 export async function ensureUsersTestSchema(input: {
