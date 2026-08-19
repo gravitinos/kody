@@ -52,18 +52,6 @@ const limitGroups: ReadonlyArray<LimitGroup> = [
 	{
 		title: 'Compute',
 		rows: [
-			{ label: 'Running package services', key: 'maxPackageServices' },
-			{
-				// A count since `maxPersistentPackageServices` replaced the old
-				// boolean allowance. Zero reads as words rather than a bare "0",
-				// so the free column says what it means.
-				label: 'Persistent package services',
-				key: 'maxPersistentPackageServices',
-				format: (value) =>
-					value === 0
-						? { text: 'Not included', muted: true }
-						: { text: count.format(value) },
-			},
 			{ label: 'Concurrent workflows', key: 'maxConcurrentWorkflows' },
 			{ label: 'Execute calls per day', key: 'maxExecuteCallsPerDay' },
 			{ label: 'Outbound fetches per day', key: 'maxOutboundFetchesPerDay' },
@@ -145,8 +133,8 @@ export function PricingRoute(handle: Handle) {
 						</p>
 						<p mix={css(planPriceNoteCss)}>$10/mo billed annually</p>
 						<p mix={css(planCopyCss)}>
-							Higher daily volume, more running services, and persistent package
-							services.
+							Higher daily volume and more room for scheduled jobs and
+							workflows.
 						</p>
 						{renderPaidPlanCta(isSignedIn)}
 					</section>

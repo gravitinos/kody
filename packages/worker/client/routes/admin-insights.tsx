@@ -111,7 +111,6 @@ const runtimeDurationMetricLabels: Record<AdminUsageMetric, string> = {
 	package_static_call: 'Static package calls',
 	job_run: 'Job runs',
 	workflow_run: 'Workflow runs',
-	service_runtime: 'Service runtime',
 	outbound_fetch: 'Fetches',
 	email_send: 'Email sends',
 	email_received: 'Email receives',
@@ -827,7 +826,7 @@ function renderDashboard(data: AdminInsightsLoaderData) {
 
 				<ChartCard
 					title="Top runtime consumers"
-					sub="Combined execute, job, workflow, and service runtime duration for the current UTC month."
+					sub="Combined execute, job, and workflow runtime duration for the current UTC month."
 					span={6}
 				>
 					{renderDurationConsumers(
@@ -845,7 +844,7 @@ function renderDashboard(data: AdminInsightsLoaderData) {
 
 				<ChartCard
 					title="Runtime leaders by metric"
-					sub="Per-metric duration leaders for execute, jobs, workflows, and services."
+					sub="Per-metric duration leaders for execute, jobs, and workflows."
 					span={6}
 				>
 					{renderDurationByMetric(data.topDurationConsumersByMetric)}

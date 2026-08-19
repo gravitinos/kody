@@ -2,7 +2,8 @@
  * Non-destructive schema for `user_storage_buckets` in workers-unit tests,
  * where the D1 database starts empty and each suite provisions the tables it
  * needs. Mirrors the squashed baseline plus
- * `0003-repo-session-storage-buckets.sql`.
+ * `0003-repo-session-storage-buckets.sql` (CHECK still allows retired
+ * `service` so leftover inventory rows can be seeded and purged).
  */
 export async function ensureUserStorageBucketsTestSchema(db: D1Database) {
 	await db

@@ -100,7 +100,7 @@ test('parseAuthoredPackageJson validates scoped package names against kody.id', 
 	)
 })
 
-test('parseAuthoredPackageJson accepts services, subscriptions, emits, retrievers, and secret mounts', () => {
+test('parseAuthoredPackageJson accepts subscriptions, emits, retrievers, and secret mounts', () => {
 	const manifest = parseAuthoredPackageJson({
 		content: JSON.stringify({
 			name: '@kentcdodds/discord-gateway',
@@ -114,14 +114,6 @@ test('parseAuthoredPackageJson accepts services, subscriptions, emits, retriever
 					discordBotToken: {
 						name: 'discordBotTokenKentPersonalAutomation',
 						scope: 'user',
-					},
-				},
-				services: {
-					'gateway-supervisor': {
-						entry: './src/gateway-supervisor.ts',
-						autoStart: true,
-						mode: 'persistent',
-						timeoutMs: 300000,
 					},
 				},
 				subscriptions: {
@@ -157,14 +149,6 @@ test('parseAuthoredPackageJson accepts services, subscriptions, emits, retriever
 		discordBotToken: {
 			name: 'discordBotTokenKentPersonalAutomation',
 			scope: 'user',
-		},
-	})
-	expect(manifest.kody.services).toEqual({
-		'gateway-supervisor': {
-			entry: './src/gateway-supervisor.ts',
-			autoStart: true,
-			mode: 'persistent',
-			timeoutMs: 300000,
 		},
 	})
 	expect(manifest.kody.subscriptions).toEqual({
@@ -378,24 +362,23 @@ test('parseAuthoredPackageJson rejects unsupported or invalid kody manifest exte
 	expect(() =>
 		parseAuthoredPackageJson({
 			content: JSON.stringify({
-				name: '@kentcdodds/realtime-supervisor',
+				name: '@kentcdodds/discord',
 				exports: {
 					'.': './index.ts',
 				},
 				kody: {
-					id: 'realtime-supervisor',
-					description: 'Realtime supervisor package',
+					id: 'discord',
+					description: 'Discord package',
 					services: {
-						'realtime-supervisor': {
-							entry: './services/realtime-supervisor.ts',
-							timeoutMs: 300001,
+						gateway: {
+							entry: './src/services/gateway.ts',
 						},
 					},
 				},
 			}),
 			manifestPath: 'package.json',
 		}),
-	).toThrow('expected number to be <=300000')
+	).toThrow(/kody\.services is not a supported field/)
 
 	expect(() =>
 		parseAuthoredPackageJson({

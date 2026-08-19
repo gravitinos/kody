@@ -99,7 +99,7 @@ an **inert** source:
 
 - `package.json` `name` and `kody.id` are rewritten to your username scope.
 - **No saved package row is created**, so nothing runs yet — no imports, jobs,
-  services, subscriptions, or package app.
+  subscriptions, or package app.
 
 The fork result lists **cross-scope references** that can never resolve across
 user scopes:
@@ -147,8 +147,7 @@ trailing **Choose your own adventure** card copies an open-ended setup prompt
 when you want to explore or build something custom instead. Install forks the
 listing into your account and, when the fork passes the same publish checks a
 repo session would run, publishes it immediately as a live saved package.
-**Publishing activates the package right away** — declared jobs are scheduled
-and `autoStart` services start.
+**Publishing activates the package right away** — declared jobs are scheduled.
 
 - **Untrusted listings** show a warning first: no admin has reviewed the code,
   and installing runs it in your account. You must explicitly confirm. Direct

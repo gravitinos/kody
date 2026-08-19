@@ -735,7 +735,6 @@ async function readStorageEstimateChunkWithRetry(input: {
 					).getEstimatedBytes()
 				case 'job':
 				case 'package':
-				case 'service':
 				case 'execute':
 				case 'unknown':
 					return storageRunnerRpc({
@@ -1145,7 +1144,7 @@ export function createStorageKodyTools(input: {
 
 /**
  * Durable storage id of a saved package's own bucket. Reached via
- * `packageStorage()` from every package surface (invocations, jobs, services,
+ * `packageStorage()` from every package surface (invocations, jobs,
  * and package apps). Saved-package runtimes do not bind ambient `storage` to
  * this bucket; bundler provenance grants access through `packageStorage()`.
  */
