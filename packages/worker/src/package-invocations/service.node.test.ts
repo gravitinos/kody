@@ -499,8 +499,7 @@ function createEnv(db: ReturnType<typeof createDatabase>) {
 
 function createToken(
 	overrides: Partial<{
-		packageIds: Array<string>
-		packageKodyIds: Array<string>
+		packageId: string
 		exportNames: Array<string>
 		sources: Array<string>
 	}> = {},
@@ -509,9 +508,7 @@ function createToken(
 		tokenId: 'discord-gateway',
 		userId: 'user-123',
 		email: 'me@example.com',
-		displayName: 'me',
-		packageIds: overrides.packageIds,
-		packageKodyIds: overrides.packageKodyIds ?? ['discord-gateway'],
+		packageId: overrides.packageId ?? 'pkg-1',
 		exportNames: overrides.exportNames ?? ['./dispatch-message-created'],
 		sources: overrides.sources ?? ['discord-gateway'],
 	} as const
@@ -1085,8 +1082,7 @@ test('package runtime can dynamically invoke the current published export from a
 		env: createEnv(db),
 		baseUrl: 'https://kody.dev',
 		token: {
-			...createToken(),
-			packageKodyIds: ['discord-gateway'],
+			...createToken({ packageId: 'pkg-gateway' }),
 			exportNames: ['./dispatch-message-created'],
 		},
 		request: {
@@ -1101,8 +1097,7 @@ test('package runtime can dynamically invoke the current published export from a
 		env: createEnv(db),
 		baseUrl: 'https://kody.dev',
 		token: {
-			...createToken(),
-			packageKodyIds: ['discord-gateway'],
+			...createToken({ packageId: 'pkg-gateway' }),
 			exportNames: ['./dispatch-message-created'],
 		},
 		request: {
@@ -2282,8 +2277,6 @@ test('invokePackageExport enforces source scopes for wildcard tokens', async () 
 		env: createEnv(db),
 		baseUrl: 'https://kody.dev',
 		token: createToken({
-			packageIds: ['*'],
-			packageKodyIds: [],
 			exportNames: ['*'],
 			sources: ['personal-client'],
 		}),
@@ -2308,8 +2301,6 @@ test('invokePackageExport enforces source scopes for wildcard tokens', async () 
 		env: createEnv(db),
 		baseUrl: 'https://kody.dev',
 		token: createToken({
-			packageIds: ['*'],
-			packageKodyIds: [],
 			exportNames: ['*'],
 			sources: ['personal-client'],
 		}),
@@ -2335,7 +2326,6 @@ test('invokePackageExport enforces source scopes for wildcard tokens', async () 
 		env: createEnv(db),
 		baseUrl: 'https://kody.dev',
 		token: createToken({
-			packageKodyIds: ['discord-gateway'],
 			exportNames: ['./other-export'],
 			sources: ['discord-gateway'],
 		}),
@@ -2355,6 +2345,82 @@ test('invokePackageExport enforces source scopes for wildcard tokens', async () 
 			code: 'export_not_allowed',
 		},
 	})
+
+	const deniedByPackage = await invokePackageExport({
+		env: createEnv(db),
+		baseUrl: 'https://kody.dev',
+		token: createToken({
+			packageId: 'pkg-other',
+			exportNames: ['*'],
+			sources: ['discord-gateway'],
+		}),
+		request: {
+			packageIdOrKodyId: 'discord-gateway',
+			exportName: 'dispatch-message-created',
+			params: { content: 'hi' },
+			idempotencyKey: 'evt-wrong-package',
+			source: 'discord-gateway',
+		},
+	})
+
+	expect(deniedByPackage.status).toBe(403)
+	expect(deniedByPackage.body).toMatchObject({
+		ok: false,
+		error: {
+			code: 'package_not_allowed',
+		},
+	})
+
+	const emptySourcesNamedDenied = await invokePackageExport({
+		env: createEnv(db),
+		baseUrl: 'https://kody.dev',
+		token: createToken({
+			exportNames: ['*'],
+			sources: [],
+		}),
+		request: {
+			packageIdOrKodyId: 'discord-gateway',
+			exportName: 'dispatch-message-created',
+			params: { content: 'hi' },
+			idempotencyKey: 'evt-empty-sources-named',
+			source: 'personal-client',
+		},
+	})
+
+	expect(emptySourcesNamedDenied.status).toBe(403)
+	expect(emptySourcesNamedDenied.body).toMatchObject({
+		ok: false,
+		error: {
+			code: 'source_not_allowed',
+		},
+	})
+
+	repoMockModule.runBundledModuleWithRegistry.mockResolvedValue({
+		result: { reply: 'unlabeled' },
+		logs: ['invoked'],
+	})
+
+	const emptySourcesUnlabeled = await invokePackageExport({
+		env: createEnv(db),
+		baseUrl: 'https://kody.dev',
+		token: createToken({
+			exportNames: ['*'],
+			sources: [],
+		}),
+		request: {
+			packageIdOrKodyId: 'discord-gateway',
+			exportName: 'dispatch-message-created',
+			params: { content: 'hi' },
+			idempotencyKey: 'evt-empty-sources-unlabeled',
+		},
+	})
+
+	expect(emptySourcesUnlabeled.status).toBe(200)
+	expect(emptySourcesUnlabeled.body).toMatchObject({
+		ok: true,
+		result: { reply: 'unlabeled' },
+	})
+	expect(repoMockModule.runBundledModuleWithRegistry).toHaveBeenCalledTimes(2)
 })
 
 test('invokePackageExport stores terminal failures for execution errors and missing exports', async () => {
