@@ -22,9 +22,11 @@ export NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN="$NX_CACHE_TOKEN"
 
 Leave them unset to run with the local `.nx` cache only. Validate and
 `test:push` use `CI=1` so cache hashes match GitHub Actions (`CI=true` would
-miss). GitHub Actions only sets the server URL after `GET /health` succeeds — Nx
-fails the job if the host is configured but unreachable, so the first merge can
-still validate before the worker exists.
+miss). GitHub Actions only sets the server URL after `GET /health` succeeds and
+an authorized `GET /v1/cache/{hash}` returns 200 or 404 — Nx fails the job if
+the host is configured but unreachable or unauthorized, so validate can still
+pass before the worker exists or after a token rotation that has not been synced
+yet.
 
 `npm run nx-cache:smoke` (also part of `test:node`) starts a local HTTP cache,
 runs `nx-cache:smoke-probe` twice with an isolated local cache wiped in between,
@@ -40,7 +42,14 @@ the window after which a poisoned hash can be replaced.
 
 ## Deploy
 
-Production deploy creates the `kody-nx-cache` R2 bucket, applies the 14-day
-lifecycle, uploads the worker, and syncs `CACHE_ACCESS_TOKEN` from the
-`NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN` GitHub Actions secret. The job no-ops
-when that secret is missing so a first merge does not block production.
+Production deploy (`.github/workflows/deploy.yml`) creates the `kody-nx-cache`
+R2 bucket, applies the 14-day lifecycle, uploads the worker, and syncs
+`CACHE_ACCESS_TOKEN` from the `NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN` GitHub
+Actions secret when cache-related paths change or when that workflow is
+dispatched on `main`. The job no-ops when that secret is missing so a first
+merge does not block production.
+
+To redeploy only the cache worker (for example after rotating
+`NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN`), run **Actions → 🧊 Nx cache worker
+→ Run workflow** on `main` (`.github/workflows/nx-cache-deploy.yml`). That
+reuses the same job and does not cancel an in-progress production deploy.
