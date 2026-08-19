@@ -61,6 +61,14 @@ test('delimiter-bounded params keep companion suffixes, hyphens, and encoded dot
 	)
 	router.get(routePattern(routes.profile), createStubHandler('profile'))
 	router.get(
+		routePattern(routes.profileAvatar),
+		createStubHandler('profile-avatar'),
+	)
+	router.get(
+		routePattern(routes.profileOgImage),
+		createStubHandler('profile-og'),
+	)
+	router.get(
 		routePattern(routes.accountSecretUserDetail),
 		createStubHandler('secret'),
 	)
@@ -90,8 +98,112 @@ test('delimiter-bounded params keep companion suffixes, hyphens, and encoded dot
 	expect(
 		await (
 			await router.fetch(
+				new Request(
+					'http://localhost/profiles/kentcdodds/avatar/00e495130208345dcc438bce0102f73a6e5cef01085a930c9c9ed2651a67b8d9.jpg',
+				),
+			)
+		).text(),
+	).toBe('profile-avatar')
+	expect(
+		await (
+			await router.fetch(new Request('http://localhost/profiles/alice/og.png'))
+		).text(),
+	).toBe('profile-og')
+	expect(
+		await (
+			await router.fetch(
 				new Request('http://localhost/account/secrets/user/google%2Eapi%2Ekey'),
 			)
 		).text(),
 	).toBe('secret')
+})
+
+test('single-segment params 404 on raw dots and match href-encoded dots', async () => {
+	const router = createRouter()
+	router.get(
+		routePattern(routes.accountIntegrationDetail),
+		createStubHandler('integration'),
+	)
+	router.get(routePattern(routes.integrationLogo), createStubHandler('logo'))
+	router.get(
+		routePattern(routes.adminPlatformIntegrationDetail),
+		createStubHandler('platform-integration'),
+	)
+	router.get(routePattern(routes.accountJobDetail), createStubHandler('job'))
+	router.get(
+		routePattern(routes.accountActivityDetail),
+		createStubHandler('activity'),
+	)
+
+	expect(
+		(
+			await router.fetch(
+				new Request('http://localhost/account/integrations/google.personal'),
+			)
+		).status,
+	).toBe(404)
+	expect(
+		await (
+			await router.fetch(
+				new Request('http://localhost/account/integrations/google%2Epersonal'),
+			)
+		).text(),
+	).toBe('integration')
+
+	expect(
+		(
+			await router.fetch(
+				new Request('http://localhost/integrations/logos/openai.com'),
+			)
+		).status,
+	).toBe(404)
+	expect(
+		await (
+			await router.fetch(
+				new Request('http://localhost/integrations/logos/openai%2Ecom'),
+			)
+		).text(),
+	).toBe('logo')
+
+	expect(
+		(
+			await router.fetch(
+				new Request('http://localhost/admin/platform-integrations/openai.com'),
+			)
+		).status,
+	).toBe(404)
+	expect(
+		await (
+			await router.fetch(
+				new Request(
+					'http://localhost/admin/platform-integrations/openai%2Ecom',
+				),
+			)
+		).text(),
+	).toBe('platform-integration')
+
+	expect(
+		(
+			await router.fetch(
+				new Request(
+					'http://localhost/account/jobs/package-job:pkg:daily.backup',
+				),
+			)
+		).status,
+	).toBe(404)
+	expect(
+		await (
+			await router.fetch(
+				new Request(
+					'http://localhost/account/jobs/package-job%3Apkg%3Adaily%2Ebackup',
+				),
+			)
+		).text(),
+	).toBe('job')
+
+	expect(
+		await (
+			await router.fetch(new Request('http://localhost/account/activity/run-1'))
+		).text(),
+	).toBe('activity')
 })
