@@ -9,9 +9,10 @@
  * only offered when the text is escape-safe; callers fall back to the
  * stylesheet `<link>` otherwise.
  *
- * Comments are stripped before the safety check and before inlining. The
- * deployed sheet's only `<>` characters live in comments (`<main>`), which
- * previously disabled inlining for every document.
+ * Comments are stripped before the safety check and before inlining. `>`,
+ * `<`, and `&` anywhere in that stripped text prevent inlining (selectors,
+ * declarations, strings, and URLs). Use a descendant combinator instead of
+ * `>`.
  */
 
 const STYLESHEET_ASSET_URL = 'https://assets.local/styles.css'
