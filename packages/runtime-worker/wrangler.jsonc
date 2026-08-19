@@ -74,10 +74,11 @@
 				},
 			],
 		},
-		{
-			"tag": "v2",
-			"deleted_classes": ["PackageServiceInstance"],
-		},
+		// Production still has the transferred PackageServiceInstance
+		// binding (error 10061). Do not add deleted_classes here until
+		// after this binding-only deploy lands. Preview keeps tag v2
+		// because a fresh worker applies v1 new_sqlite_classes and
+		// cannot create an unexported class (error 10070).
 	],
 	"observability": {
 		"enabled": true,
