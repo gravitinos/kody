@@ -273,6 +273,17 @@ export const EnvSchema = object({
 	GOOGLE_CLIENT_SECRET: optionalNonEmptyStringSchema,
 	X_CLIENT_ID: optionalNonEmptyStringSchema,
 	X_CLIENT_SECRET: optionalNonEmptyStringSchema,
+	DISCORD_CLIENT_ID: optionalNonEmptyStringSchema,
+	DISCORD_CLIENT_SECRET: optionalNonEmptyStringSchema,
+	// Operator Discord bot used to assign/remove Kody Discord guild roles
+	// after a Discord social-login connection is stored. Bot token + guild
+	// id plus at least one role id must be set; login still works when they
+	// are unset. Standard/Pro roles follow users.stripe_plan.
+	DISCORD_BOT_TOKEN: optionalNonEmptyStringSchema,
+	DISCORD_GUILD_ID: optionalNonEmptyStringSchema,
+	DISCORD_MEMBER_ROLE_ID: optionalNonEmptyStringSchema,
+	DISCORD_STANDARD_ROLE_ID: optionalNonEmptyStringSchema,
+	DISCORD_PRO_ROLE_ID: optionalNonEmptyStringSchema,
 	CLOUDFLARE_ACCOUNT_ID: optionalNonEmptyStringSchema,
 	CLOUDFLARE_API_TOKEN: optionalNonEmptyStringSchema,
 	CLOUDFLARE_API_BASE_URL: optionalUrlStringSchema,

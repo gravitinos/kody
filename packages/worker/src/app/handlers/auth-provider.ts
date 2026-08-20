@@ -67,6 +67,7 @@ import { defaultPostVerificationRedirect } from '#universal/safe-redirect.ts'
 import { getSignupMode } from '#universal/signup-mode.ts'
 import { followDefaultWelcomeAccounts } from '#worker/community/welcome-follow.ts'
 import { parseLegacyHosts } from '#worker/app-legacy-redirect.ts'
+import { maybeSyncDiscordGuildRolesForUser } from '#worker/discord/guild-role.ts'
 
 /**
  * Accounts created through social login have no usable password until the
@@ -120,6 +121,24 @@ function redirectToLoginWithError(
 		? `&redirectTo=${encodeURIComponent(redirectTo)}`
 		: ''
 	return redirect(`/login?oauthError=${code}${redirectToSuffix}`, cookies)
+}
+
+function oauthResultLocation(
+	path: string,
+	key: 'oauthLinked' | 'oauthError',
+	value: string,
+) {
+	const url = new URL(path, 'https://kody.local')
+	url.searchParams.set(key, value)
+	return `${url.pathname}${url.search}${url.hash}`
+}
+
+function signedInOauthReturnLocation(
+	redirectTo: string | null,
+	key: 'oauthLinked' | 'oauthError',
+	value: string,
+) {
+	return oauthResultLocation(redirectTo ?? '/account', key, value)
 }
 
 /**
@@ -268,6 +287,19 @@ export function createAuthProviderCallbackHandler(env: Env) {
 		})
 	}
 
+	async function syncDiscordGuildRoles(input: {
+		provider: OauthProviderId
+		userId: number
+		discordUserId: string
+	}) {
+		if (input.provider !== 'discord') return
+		await maybeSyncDiscordGuildRolesForUser({
+			env,
+			userId: input.userId,
+			discordUserId: input.discordUserId,
+		})
+	}
+
 	return {
 		middleware: [],
 		async handler({ request, url, params }) {
@@ -292,7 +324,10 @@ export function createAuthProviderCallbackHandler(env: Env) {
 				// page; bouncing them to /login would immediately redirect back
 				// and drop the message.
 				if (session) {
-					return redirect(`/account?oauthError=${code}`, [clearStateCookie])
+					return redirect(
+						signedInOauthReturnLocation(redirectTo, 'oauthError', code),
+						[clearStateCookie],
+					)
 				}
 				return redirectToLoginWithError(code, [clearStateCookie], redirectTo)
 			}
@@ -417,9 +452,15 @@ export function createAuthProviderCallbackHandler(env: Env) {
 				}
 				if (connection) {
 					if (connection.user_id === currentUser.id) {
-						return redirect(`/account?oauthLinked=${provider}`, [
-							clearStateCookie,
-						])
+						await syncDiscordGuildRoles({
+							provider,
+							userId: currentUser.id,
+							discordUserId: profile.providerUserId,
+						})
+						return redirect(
+							signedInOauthReturnLocation(redirectTo, 'oauthLinked', provider),
+							[clearStateCookie],
+						)
 					}
 					return fail('connection-conflict', 'connection_conflict')
 				}
@@ -435,6 +476,11 @@ export function createAuthProviderCallbackHandler(env: Env) {
 					}
 					throw error
 				}
+				await syncDiscordGuildRoles({
+					provider,
+					userId: currentUser.id,
+					discordUserId: profile.providerUserId,
+				})
 				void logAuditEvent({
 					category: 'auth',
 					action: 'oauth_connection_linked',
@@ -444,7 +490,10 @@ export function createAuthProviderCallbackHandler(env: Env) {
 					path: url.pathname,
 					reason: `provider=${provider}`,
 				})
-				return redirect(`/account?oauthLinked=${provider}`, [clearStateCookie])
+				return redirect(
+					signedInOauthReturnLocation(redirectTo, 'oauthLinked', provider),
+					[clearStateCookie],
+				)
 			}
 
 			// 2. A known connection signs its user in directly.
@@ -455,6 +504,11 @@ export function createAuthProviderCallbackHandler(env: Env) {
 				if (!user) {
 					return fail('account-error', 'connection_user_missing')
 				}
+				await syncDiscordGuildRoles({
+					provider,
+					userId: user.id,
+					discordUserId: profile.providerUserId,
+				})
 				return issueLogin(user)
 			}
 
@@ -488,6 +542,11 @@ export function createAuthProviderCallbackHandler(env: Env) {
 						email_verified_at: new Date().toISOString(),
 					})
 				}
+				await syncDiscordGuildRoles({
+					provider,
+					userId: existingUser.id,
+					discordUserId: profile.providerUserId,
+				})
 				return issueLogin(existingUser)
 			}
 
@@ -593,6 +652,11 @@ export function createAuthProviderCallbackHandler(env: Env) {
 				await rollbackNewUser(newUser.id)
 				return fail('account-error', 'connection_create_failed')
 			}
+			await syncDiscordGuildRoles({
+				provider,
+				userId: newUser.id,
+				discordUserId: profile.providerUserId,
+			})
 
 			// Best-effort, mirroring password signup: the automatic
 			// {username}@<platform domain> inbox is also provisioned on first

@@ -1,4 +1,5 @@
 import { type AccountConnectionsLoaderData } from '#universal/loader-data.ts'
+import { isDiscordGuildRoleSyncConfigured } from '#worker/discord/guild-role.ts'
 import {
 	getEnabledOauthProviders,
 	isOauthProviderId,
@@ -70,5 +71,8 @@ export async function loadAccountConnectionsData(input: {
 				id: provider,
 				label: oauthProviderDefinitions[provider].label,
 			})),
+		canSyncDiscordRoles:
+			connectedProviders.has('discord') &&
+			isDiscordGuildRoleSyncConfigured(env),
 	}
 }

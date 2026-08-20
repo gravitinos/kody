@@ -81,3 +81,4 @@ Do not treat this list as homework. History stays; it is not silently deleted.
   — contributor infra, not a product primitive
 - [0028 — List/detail records expand inside the table](./0028-list-detail-expand.md)
   — UI mode assignment (supersedes 0010)
+- [0029 — Discord social login and official guild role](./0029-discord-social-login-and-guild-role.md)

@@ -59,6 +59,10 @@ import { deleteAllPackageRetrieverCacheEntriesForUser } from '#worker/package-re
 import { buildCommunitySnapshotKvKey } from '#worker/community/snapshot.ts'
 import { buildCommunityIconCacheKey } from '#worker/community/community-icon.ts'
 import { derivedCacheKeyPrefix } from '#worker/kv-cachified.ts'
+import {
+	maybeRemoveDiscordGuildRoles,
+	summarizeDiscordGuildRoleSync,
+} from '#worker/discord/guild-role.ts'
 
 // Imported manually instead of via `@cloudflare/workers-oauth-provider` so
 // node-only unit tests can require this module without dragging in
@@ -1143,6 +1147,36 @@ export async function deleteUserAccount(input: {
 		warnings,
 	})
 	result.deletedEmailBlobs = emailCleanup.deletedEmailBlobs
+
+	const discordConnection = await input.env.APP_DB.prepare(
+		`SELECT provider_id FROM oauth_connections
+		 WHERE user_id = ? AND provider_name = 'discord'`,
+	)
+		.bind(input.dbUserId)
+		.first<{ provider_id: string }>()
+		.catch((error) => {
+			warnings.push(
+				`Discord connection lookup failed: ${getErrorMessage(error)}`,
+			)
+			return null
+		})
+	if (discordConnection?.provider_id) {
+		const discordRoleCleanup = await maybeRemoveDiscordGuildRoles({
+			env: input.env,
+			discordUserId: discordConnection.provider_id,
+		})
+		const discordRoleResult = summarizeDiscordGuildRoleSync(discordRoleCleanup)
+		if (
+			discordRoleResult.status === 'error' ||
+			discordRoleResult.status === 'forbidden'
+		) {
+			warnings.push(
+				discordRoleResult.status === 'error'
+					? `Discord role cleanup failed: ${discordRoleResult.message}`
+					: 'Discord role cleanup was forbidden.',
+			)
+		}
+	}
 
 	const helpers = input.env.OAUTH_PROVIDER
 	if (helpers) {

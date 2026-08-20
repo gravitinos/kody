@@ -716,6 +716,8 @@ export type AccountConnectionsLoaderData = {
 	connections: Array<AccountConnectionListItem>
 	canDisconnect: boolean
 	availableProviders: Array<{ id: string; label: string }>
+	/** True when Discord is connected and operator guild-role sync is configured. */
+	canSyncDiscordRoles: boolean
 }
 
 /** One-click built-in integration offered during onboarding. */
@@ -1442,6 +1444,17 @@ export type OAuthAuthorizeLoaderData =
 			code?: 'email_verification_required'
 	  }
 
+export type DiscordPageLoaderData = {
+	ok: true
+	signedIn: boolean
+	discordConnected: boolean
+	discordDisplayName: string | null
+	discordProviderAvailable: boolean
+	canSyncDiscordRoles: boolean
+	inviteUrl: string
+	turnstileSiteKey: string | null
+}
+
 export type AppLoaderData = {
 	blog?: BlogLoaderData
 	blogPost?: BlogPostLoaderData
@@ -1483,6 +1496,7 @@ export type AppLoaderData = {
 	oauthAuthorize?: OAuthAuthorizeLoaderData
 	accountBilling?: AccountBillingLoaderData
 	accountUsage?: AccountUsageLoaderData
+	discord?: DiscordPageLoaderData
 }
 
 export type AccountBillingLoaderData = {

@@ -1,3 +1,5 @@
+import { waitUntil } from 'cloudflare:workers'
+import { maybeSyncDiscordGuildRolesForUser } from '#worker/discord/guild-role.ts'
 import { normalizeEmail } from '#worker/identity/normalize-email.ts'
 import { parseStripePlanName, type PlanName } from '#universal/plans.ts'
 import {
@@ -65,6 +67,13 @@ export async function refreshStripePlanForUser(input: {
 			input.customerId,
 		)
 		.run()
+	waitUntil(
+		maybeSyncDiscordGuildRolesForUser({
+			env: input.env,
+			userId: input.userId,
+			stripePlan: resolved.stripePlan,
+		}),
+	)
 	return resolved
 }
 

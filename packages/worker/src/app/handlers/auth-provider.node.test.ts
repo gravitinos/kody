@@ -141,6 +141,8 @@ function createAppEnv(
 		GOOGLE_CLIENT_SECRET: 'google-client-secret-test',
 		X_CLIENT_ID: 'x-client-id-test',
 		X_CLIENT_SECRET: 'x-client-secret-test',
+		DISCORD_CLIENT_ID: 'discord-client-id-test',
+		DISCORD_CLIENT_SECRET: 'discord-client-secret-test',
 		...overrides,
 	} as unknown as Env
 }
@@ -196,6 +198,7 @@ test('providers api lists only configured providers', async () => {
 			{ id: 'github', label: 'GitHub' },
 			{ id: 'google', label: 'Google' },
 			{ id: 'x', label: 'X' },
+			{ id: 'discord', label: 'Discord' },
 		],
 	})
 
@@ -206,6 +209,8 @@ test('providers api lists only configured providers', async () => {
 				GOOGLE_CLIENT_SECRET: '',
 				X_CLIENT_ID: '',
 				X_CLIENT_SECRET: '',
+				DISCORD_CLIENT_ID: '',
+				DISCORD_CLIENT_SECRET: '',
 			}),
 		),
 		new Request('http://example.com/auth/providers.json'),
@@ -428,6 +433,290 @@ test('google sign-in links a matching verified email to the existing account', a
 		.prepare(`SELECT COUNT(*) AS count FROM users`)
 		.get() as { count: number }
 	expect(userCount.count).toBe(1)
+})
+
+test('discord sign-in creates a verified account and assigns the guild role', async () => {
+	const { sqlite, db } = createMigratedDb()
+	const env = createAppEnv(db, {
+		DISCORD_BOT_TOKEN: 'bot-token-test',
+		DISCORD_GUILD_ID: '111111111111111111',
+		DISCORD_MEMBER_ROLE_ID: '222222222222222222',
+		DISCORD_STANDARD_ROLE_ID: '444444444444444444',
+		DISCORD_PRO_ROLE_ID: '555555555555555555',
+	})
+	const rolePuts: Array<string> = []
+	const roleDeletes: Array<string> = []
+	const guildRoleUrl =
+		'https://discord.com/api/v10/guilds/111111111111111111/members/333333333333333333/roles/:roleId'
+
+	msw.use(
+		http.post('https://discord.com/api/oauth2/token', async ({ request }) => {
+			const body = new URLSearchParams(await request.text())
+			expect(body.get('client_id')).toBe('discord-client-id-test')
+			expect(body.get('client_secret')).toBe('discord-client-secret-test')
+			expect(body.get('code')).toBe('discord-auth-code')
+			expect(body.get('code_verifier')?.length).toBeGreaterThan(0)
+			return HttpResponse.json({ access_token: 'discord-access-token' })
+		}),
+		http.get('https://discord.com/api/v10/users/@me', ({ request }) => {
+			expect(request.headers.get('Authorization')).toBe(
+				'Bearer discord-access-token',
+			)
+			return HttpResponse.json({
+				id: '333333333333333333',
+				username: 'kody-fan',
+				global_name: 'Kody Fan',
+				email: 'kody-fan@example.com',
+				verified: true,
+			})
+		}),
+		http.put(guildRoleUrl, ({ request, params }) => {
+			expect(request.headers.get('Authorization')).toBe('Bot bot-token-test')
+			rolePuts.push(String(params.roleId))
+			return new HttpResponse(null, { status: 204 })
+		}),
+		http.delete(guildRoleUrl, ({ request, params }) => {
+			expect(request.headers.get('Authorization')).toBe('Bot bot-token-test')
+			roleDeletes.push(String(params.roleId))
+			return new HttpResponse(null, { status: 204 })
+		}),
+	)
+
+	const start = await startProviderFlow(
+		env,
+		'discord',
+		'http://example.com/auth/discord',
+	)
+	expect(start.location).toContain('https://discord.com/oauth2/authorize')
+	expect(start.location).toContain('code_challenge_method=S256')
+	expect(start.location).toContain('scope=identify+email')
+
+	const callbackResponse = await runHandler(
+		createAuthProviderCallbackHandler(env),
+		new Request(
+			`http://example.com/auth/discord/callback?code=discord-auth-code&state=${start.state}`,
+			{ headers: { Cookie: start.stateCookie } },
+		),
+		{ provider: 'discord' },
+	)
+	expect(callbackResponse.status).toBe(302)
+	expect(callbackResponse.headers.get('Location')).toBe('/onboarding')
+	const user = sqlite
+		.prepare(`SELECT * FROM users WHERE email = ?`)
+		.get('kody-fan@example.com') as Record<string, unknown>
+	expect(user).toBeTruthy()
+	expect(user.username).toBe('kody-fan')
+	expect(user.email_verified_at).toBeTruthy()
+	const connection = sqlite
+		.prepare(
+			`SELECT * FROM oauth_connections WHERE provider_name = 'discord' AND provider_id = '333333333333333333'`,
+		)
+		.get() as Record<string, unknown>
+	expect(connection.user_id).toBe(user.id)
+	expect(rolePuts).toEqual(['222222222222222222'])
+	expect(roleDeletes.sort()).toEqual([
+		'444444444444444444',
+		'555555555555555555',
+	])
+
+	const sessionCookiePair = (callbackResponse.headers.getSetCookie() ?? [])
+		.map(getCookiePair)
+		.find((pair) => pair.startsWith('kody_session='))
+	expect(sessionCookiePair).toBeTruthy()
+
+	const connectionsHandler = createAccountConnectionsApiHandler(env)
+	const syncResponse = await runHandler(
+		connectionsHandler,
+		new Request('http://example.com/account/connections.json', {
+			method: 'POST',
+			headers: {
+				Cookie: sessionCookiePair ?? '',
+				Accept: 'application/json',
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ intent: 'sync-discord-role' }),
+		}),
+	)
+	const syncPayload = (await syncResponse.json()) as {
+		ok: boolean
+		canSyncDiscordRoles: boolean
+		discordMemberRole?: { status: string }
+	}
+	expect(syncPayload.ok).toBe(true)
+	expect(syncPayload.canSyncDiscordRoles).toBe(true)
+	expect(syncPayload.discordMemberRole?.status).toBe('assigned')
+	expect(rolePuts).toEqual(['222222222222222222', '222222222222222222'])
+	expect(roleDeletes).toHaveLength(4)
+
+	const passwordHash = await createPasswordHash('test-password')
+	sqlite
+		.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`)
+		.run(passwordHash, user.id)
+	const disconnectResponse = await runHandler(
+		connectionsHandler,
+		new Request('http://example.com/account/connections.json', {
+			method: 'POST',
+			headers: {
+				Cookie: sessionCookiePair ?? '',
+				Accept: 'application/json',
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({ intent: 'disconnect', provider: 'discord' }),
+		}),
+	)
+	const disconnectPayload = (await disconnectResponse.json()) as {
+		ok: boolean
+		connections: Array<unknown>
+		canSyncDiscordRoles: boolean
+	}
+	expect(disconnectPayload.ok).toBe(true)
+	expect(disconnectPayload.connections).toHaveLength(0)
+	expect(disconnectPayload.canSyncDiscordRoles).toBe(false)
+	expect(roleDeletes).toHaveLength(7)
+	expect(
+		roleDeletes.filter((roleId) => roleId === '222222222222222222'),
+	).toEqual(['222222222222222222'])
+})
+
+test('discord sign-in without a verified email fails with a helpful error', async () => {
+	const { sqlite, db } = createMigratedDb()
+	const env = createAppEnv(db)
+
+	msw.use(
+		http.post('https://discord.com/api/oauth2/token', () =>
+			HttpResponse.json({ access_token: 'discord-access-token' }),
+		),
+		http.get('https://discord.com/api/v10/users/@me', () =>
+			HttpResponse.json({
+				id: '444444444444444444',
+				username: 'unverified-discord',
+				email: 'unverified-discord@example.com',
+				verified: false,
+			}),
+		),
+	)
+
+	const start = await startProviderFlow(
+		env,
+		'discord',
+		'http://example.com/auth/discord',
+	)
+	const callbackResponse = await runHandler(
+		createAuthProviderCallbackHandler(env),
+		new Request(
+			`http://example.com/auth/discord/callback?code=discord-auth-code&state=${start.state}`,
+			{ headers: { Cookie: start.stateCookie } },
+		),
+		{ provider: 'discord' },
+	)
+	expect(callbackResponse.status).toBe(302)
+	expect(callbackResponse.headers.get('Location')).toBe(
+		'/login?oauthError=no-verified-email',
+	)
+	expect(sqlite.prepare(`SELECT COUNT(*) AS count FROM users`).get()).toEqual({
+		count: 0,
+	})
+})
+
+test('signed-in discord connect returns to redirectTo instead of /account', async () => {
+	const { sqlite, db } = createMigratedDb()
+	const env = createAppEnv(db)
+	await seedUser(sqlite, {
+		id: 21,
+		email: 'discord-page@example.com',
+		username: 'discord-page',
+	})
+	const sessionCookiePair = getCookiePair(
+		await createAuthCookie(
+			{
+				stableUserId: await createStableUserIdFromEmail(
+					'discord-page@example.com',
+				),
+				email: 'discord-page@example.com',
+				rememberMe: false,
+			},
+			false,
+		),
+	)
+
+	msw.use(
+		http.post('https://discord.com/api/oauth2/token', () =>
+			HttpResponse.json({ access_token: 'discord-access-token' }),
+		),
+		http.get('https://discord.com/api/v10/users/@me', () =>
+			HttpResponse.json({
+				id: '666666666666666666',
+				username: 'discord-page',
+				global_name: 'Discord Page',
+				email: 'discord-page@example.com',
+				verified: true,
+			}),
+		),
+	)
+
+	const deniedStart = await startProviderFlow(
+		env,
+		'discord',
+		'http://example.com/auth/discord?redirectTo=%2Fdiscord',
+	)
+	const deniedResponse = await runHandler(
+		createAuthProviderCallbackHandler(env),
+		new Request(
+			`http://example.com/auth/discord/callback?error=access_denied&state=${deniedStart.state}`,
+			{
+				headers: { Cookie: `${deniedStart.stateCookie}; ${sessionCookiePair}` },
+			},
+		),
+		{ provider: 'discord' },
+	)
+	expect(deniedResponse.headers.get('Location')).toBe(
+		'/discord?oauthError=denied',
+	)
+
+	const start = await startProviderFlow(
+		env,
+		'discord',
+		'http://example.com/auth/discord?redirectTo=%2Fdiscord',
+	)
+	const linkResponse = await runHandler(
+		createAuthProviderCallbackHandler(env),
+		new Request(
+			`http://example.com/auth/discord/callback?code=discord-auth-code&state=${start.state}`,
+			{ headers: { Cookie: `${start.stateCookie}; ${sessionCookiePair}` } },
+		),
+		{ provider: 'discord' },
+	)
+	expect(linkResponse.status).toBe(302)
+	expect(linkResponse.headers.get('Location')).toBe(
+		'/discord?oauthLinked=discord',
+	)
+	const connection = sqlite
+		.prepare(
+			`SELECT user_id FROM oauth_connections WHERE provider_name = 'discord'`,
+		)
+		.get() as { user_id: number }
+	expect(connection.user_id).toBe(21)
+
+	const relinkStart = await startProviderFlow(
+		env,
+		'discord',
+		'http://example.com/auth/discord?redirectTo=%2Fdiscord',
+	)
+	const relinkResponse = await runHandler(
+		createAuthProviderCallbackHandler(env),
+		new Request(
+			`http://example.com/auth/discord/callback?code=discord-auth-code&state=${relinkStart.state}`,
+			{
+				headers: {
+					Cookie: `${relinkStart.stateCookie}; ${sessionCookiePair}`,
+				},
+			},
+		),
+		{ provider: 'discord' },
+	)
+	expect(relinkResponse.headers.get('Location')).toBe(
+		'/discord?oauthLinked=discord',
+	)
 })
 
 test('x sign-in without a shared email fails with a helpful error', async () => {
@@ -657,6 +946,7 @@ test('signed-in users link and disconnect providers from their account', async (
 	expect(listPayload.availableProviders.map((p) => p.id)).toEqual([
 		'google',
 		'x',
+		'discord',
 	])
 
 	const disconnectResponse = await runHandler(
