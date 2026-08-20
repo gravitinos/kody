@@ -38,6 +38,7 @@ import {
 } from '#client/routes/onboarding-checklist.tsx'
 import { OnboardingMcpClientTabs } from '#client/routes/onboarding-mcp-client-tabs.tsx'
 import { OnboardingExampleCard } from '#client/routes/onboarding-example-card.tsx'
+import { OnboardingFactoryCard } from '#client/routes/onboarding-factory-card.tsx'
 import { createOnboardingNextConfirmation } from '#client/routes/onboarding-next-confirmation.ts'
 import { OnboardingPackageNextSteps } from '#client/routes/onboarding-package-next-steps.tsx'
 import {
@@ -910,6 +911,8 @@ export function OnboardingRoute(handle: Handle) {
 								/>
 							</section>
 						) : null}
+
+						<OnboardingFactoryCard />
 
 						{/* Outside the wizard panels on purpose: the prototype keeps the
 					    BYOK disclosure visible on every step. */}
