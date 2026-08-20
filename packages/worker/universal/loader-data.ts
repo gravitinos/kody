@@ -63,6 +63,9 @@ export type GuideDetailLoaderData = {
 	title: string
 	summary: string
 	category: 'platform' | 'provider'
+	image: string | null
+	imageAlt: string | null
+	ogImage: string | null
 	provider: string | null
 	lastVerified: string | null
 	body: string

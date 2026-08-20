@@ -5,6 +5,9 @@ summary:
   Map Kody's discovery, credentials, integrations, packages, storage, schedules,
   hosted surfaces, and memories—and know where the boundary is.
 category: platform
+image: /images/kody-factory-map.webp
+imageAlt: Kody presenting a map of the software factory
+ogImage: /images/kody-factory-map-og.jpg
 ---
 
 # The Kody factory map
