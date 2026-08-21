@@ -28,6 +28,7 @@ import {
 } from '#worker/server-timing.ts'
 import { assertPackageNotPrivateForCommunityPublish } from '#worker/package-registry/package-private.ts'
 import { assertKodyDescriptionLength } from '#worker/package-registry/types.ts'
+import { parseAuthoredPackageJson } from '#worker/package-registry/manifest.ts'
 import { enqueueCommunityActivityDispatch } from './activity-dispatch-queue-producer.ts'
 import { assertNotCommunityBanned } from './assert-not-community-banned.ts'
 import { CommunityActionError } from './errors.ts'
@@ -1184,11 +1185,24 @@ export async function prepareCommunityFork(
 	}
 
 	const targetKodyId = input.kodyId?.trim() || listing.kodyId
-	const rewrittenManifest = rewritePackageManifestForFork({
-		manifestContent: packageJsonContent,
-		expectedPackageScope: input.expectedPackageScope,
-		targetKodyId,
-	})
+	let rewrittenManifest: ReturnType<typeof rewritePackageManifestForFork>
+	try {
+		rewrittenManifest = rewritePackageManifestForFork({
+			manifestContent: packageJsonContent,
+			expectedPackageScope: input.expectedPackageScope,
+			targetKodyId,
+		})
+		// Validate the rewritten snapshot before Artifacts bootstrap. Stale
+		// listing pins (e.g. pre-map kody.dependencies) are owner-fixable via
+		// community_publish — keep them on mcp-event, not Sentry.
+		parseAuthoredPackageJson({
+			content: rewrittenManifest.content,
+			manifestPath: 'package.json',
+			expectedPackageScope: input.expectedPackageScope,
+		})
+	} catch (error) {
+		throw new CommunityActionError(getErrorMessage(error))
+	}
 	const [existingByKody, existingByName, existingForks, platformUsernames] =
 		await Promise.all([
 			getSavedPackageByKodyId(input.env.APP_DB, {
