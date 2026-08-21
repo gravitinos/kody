@@ -1492,7 +1492,7 @@ test('renderAppPage shows reviewed blog artwork and hides the placeholder callou
 	const html = await readResponseText(response)
 	expect(html).toContain('src="/images/kody-vs-executor.webp"')
 	expect(html).toContain(
-		'property="og:image" content="https://example.com/images/kody-vs-executor-og.jpg"',
+		'property="og:image" content="https://example.com/blog/kody-vs-executor/og.png"',
 	)
 	expect(html).not.toContain(BLOG_PLACEHOLDER_CALLOUT)
 })

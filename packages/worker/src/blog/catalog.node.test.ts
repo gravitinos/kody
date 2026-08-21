@@ -102,8 +102,25 @@ Body
 		placeholder: false,
 		image: '/images/kody-vs-executor.webp',
 		imageAlt: 'Kody and the Executor logo size each other up.',
-		ogImage: '/images/kody-vs-executor.webp',
+		ogImage: null,
 	})
+
+	const customOg = parseBlogPostMarkdown(
+		'custom-og',
+		`---
+title: Custom OG
+date: 2026-08-20
+description: A post with a static social image.
+order: 1
+image: /images/kody-vs-executor.webp
+imageAlt: Headline art.
+ogImage: /images/kody-vs-executor.webp
+---
+
+Body
+`,
+	)
+	expect(customOg.ogImage).toBe('/images/kody-vs-executor.webp')
 
 	expect(() =>
 		parseBlogPostMarkdown(
