@@ -188,6 +188,13 @@ test('transient platform failures back off the same occurrence while permanent o
 	expect(
 		isTransientJobExecutionError(
 			new Error(
+				'Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request.',
+			),
+		),
+	).toBe(true)
+	expect(
+		isTransientJobExecutionError(
+			new Error(
 				'Unable to verify the storage byte entitlement because the bucket estimate for storageId "package:1" could not be read after 4 attempts.',
 			),
 		),
