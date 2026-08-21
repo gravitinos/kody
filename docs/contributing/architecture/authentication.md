@@ -527,11 +527,17 @@ routed from `packages/worker/src/index.ts`.
 - Client registration: `/oauth/register` (via provider), plus Client ID Metadata
   Documents (`clientIdMetadataDocumentEnabled` in
   `packages/worker/src/index.ts`): a client may present an HTTPS URL as its
-  `client_id` with no registration step. MCP `2026-07-28` deprecates RFC 7591
-  dynamic registration in favor of CIMD, so both stay enabled: clients that do
-  not use CIMD register via `/oauth/register`, and a failed CIMD metadata fetch
-  returns `invalid_client` (any DCR retry after that is the client's own
-  recovery, not a server-side fallback). CIMD metadata fetches rely on the
+  `client_id` with no registration step. Signed-in users can also mint a
+  confidential pre-registered client from `/account/mcp-oauth-clients` (Account
+  → Advanced). `user_mcp_oauth_clients` stores the account-owned metadata. The
+  provider stores the secret hash in `OAUTH_KV` via
+  `env.OAUTH_PROVIDER.createClient()`. List and revoke are scoped to the owning
+  `user_id`. The plaintext secret is shown once and never written to D1. MCP
+  `2026-07-28` deprecates RFC 7591 dynamic registration in favor of CIMD, so
+  both stay enabled: clients without a pre-registered credential that do not use
+  CIMD register via `/oauth/register`, and a failed CIMD metadata fetch returns
+  `invalid_client` (any DCR retry after that is the client's own recovery, not a
+  server-side fallback). CIMD metadata fetches rely on the
   `global_fetch_strictly_public` compatibility flag in
   `packages/worker/wrangler.jsonc` for SSRF safety; the provider only advertises
   `client_id_metadata_document_supported` when both are set.
