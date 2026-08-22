@@ -14,14 +14,8 @@ import {
 export type MemoryToolSummary = {
 	memories: Array<{
 		id: string
-		category: string | null
-		status: string
 		subject: string
 		summary: string
-		details: string
-		tags: Array<string>
-		sourceUris: Array<string>
-		updatedAt: string
 	}>
 	retrieverResults: Array<PackageRetrieverSurfaceResult>
 	retrieverWarnings: Array<string>
@@ -29,8 +23,20 @@ export type MemoryToolSummary = {
 	retrievalQuery: string
 }
 
-/** Automatic context drops one-list RRF noise (~0.016 at k=60). */
-const automaticMemoryScoreFloor = 0.02
+/** Single-list RRF rank-1 at k=60 is 1/61. Used by tests as the inject floor. */
+export const automaticMemorySingleListRankOneScore = 1 / 61
+/** Auto-surface keeps the top ranked active hits, not an absolute score cut. */
+const automaticMemorySurfaceLimit = 2
+
+function selectAutomaticMemories<
+	T extends {
+		status: string
+	},
+>(matches: Array<T>) {
+	return matches
+		.filter((match) => match.status === 'active')
+		.slice(0, automaticMemorySurfaceLimit)
+}
 
 async function loadAutomaticMemories(input: {
 	env: Pick<Env, 'APP_DB'> & Partial<Pick<Env, 'CAPABILITY_VECTOR_INDEX'>>
@@ -51,19 +57,9 @@ async function loadAutomaticMemories(input: {
 		query: input.query,
 		conversationId: input.conversationId,
 		limit: input.limit,
+		includeSuppressedInConversation: true,
 	})
-	const memories = result.matches.filter(
-		(match) =>
-			match.status === 'active' && match.score >= automaticMemoryScoreFloor,
-	)
-	if (input.acknowledgeSurfaced !== false && memories.length > 0) {
-		await acknowledgeSurfacedMemories({
-			env: input.env,
-			userId: input.userId,
-			conversationId: input.conversationId,
-			memoryIds: memories.map((memory) => memory.id),
-		})
-	}
+	const memories = selectAutomaticMemories(result.matches)
 	return {
 		memories,
 		suppressedCount: result.suppressedCount,
@@ -265,20 +261,6 @@ function formatRelevantMemoriesMarkdown(memorySummary: MemoryToolSummary) {
 		lines.push('## Relevant memories', '')
 		for (const memory of memorySummary.memories) {
 			lines.push(`- **${memory.subject}** — ${memory.summary}`)
-			if (memory.category) {
-				lines.push(`  - Category: \`${memory.category}\``)
-			}
-			if (memory.tags.length > 0) {
-				lines.push(
-					`  - Tags: ${memory.tags.map((tag) => `\`${tag}\``).join(', ')}`,
-				)
-			}
-			if (memory.sourceUris.length > 0) {
-				lines.push(
-					`  - Sources: ${memory.sourceUris.map((sourceUri) => `\`${sourceUri}\``).join(', ')}`,
-				)
-			}
-			lines.push(`  - Updated: \`${memory.updatedAt}\``)
 		}
 	}
 	if (memorySummary.retrieverResults.length > 0) {
@@ -314,13 +296,7 @@ function formatRelevantMemoriesMarkdown(memorySummary: MemoryToolSummary) {
 function toMemoryToolSummaryItem(memory: MemoryRecord) {
 	return {
 		id: memory.id,
-		category: memory.category,
-		status: memory.status,
 		subject: memory.subject,
 		summary: memory.summary,
-		details: memory.details,
-		tags: memory.tags,
-		sourceUris: memory.sourceUris,
-		updatedAt: memory.updatedAt,
 	}
 }

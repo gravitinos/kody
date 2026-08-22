@@ -107,7 +107,6 @@ vi.mock('#worker/community/service.ts', () => ({
 const {
 	registerSearchTool,
 	SEARCH_MEMORY_ENRICHMENT_BUDGET_MS,
-	memoryAcknowledgementWarning,
 	memoryEnrichmentSkippedWarning,
 } = await import('./search.ts')
 
@@ -249,10 +248,10 @@ test('search tool returns compact query markdown while preserving structured aux
 				category: 'preference',
 				status: 'active',
 				subject: 'Verbose memory subject',
-				summary:
-					'This memory summary is intentionally long and should not be rendered into broad search markdown.',
+				summary: 'Prefers compact search results.',
 				details: 'Long memory details should stay out of the text response.',
 				tags: ['search'],
+				sourceUris: [],
 				updatedAt: '2026-04-20T00:00:00.000Z',
 			},
 		],
@@ -293,6 +292,15 @@ test('search tool returns compact query markdown while preserving structured aux
 
 	const text = successResponse.content.map((item) => item.text).join('\n')
 	expect(text.length).toBeGreaterThan(0)
+	expect(text).toContain('## Relevant memories')
+	expect(text).toContain('Verbose memory subject')
+	expect(text).toContain('Prefers compact search results.')
+	expect(text).not.toContain(
+		'Long memory details should stay out of the text response.',
+	)
+	expect(text).not.toContain('Category:')
+	expect(text).not.toContain('Tags:')
+	expect(text).not.toContain('Updated:')
 	const result = successResponse.structuredContent.result as {
 		warnings: Array<string>
 		guidance?: string
@@ -320,15 +328,9 @@ test('search tool returns compact query markdown while preserving structured aux
 		expect.objectContaining({
 			memoryEnrichmentTimedOut: false,
 			memoryEnrichmentMs: expect.any(Number),
-			memoryAcknowledgementMs: expect.any(Number),
 		}),
 	)
-	expect(mockModule.acknowledgeToolMemories).toHaveBeenCalledWith(
-		expect.objectContaining({
-			conversationId: 'conv-compact-search',
-			memoryIds: ['memory-1'],
-		}),
-	)
+	expect(mockModule.acknowledgeToolMemories).not.toHaveBeenCalled()
 
 	mockPerformanceNow.mockReturnValueOnce(5).mockReturnValueOnce(9)
 	const emptyDiscoveryResponse = await handler({
@@ -1033,6 +1035,7 @@ test('search tool memory enrichment: timeout, rejection, and ack failure stay of
 				summary: 'Prefers compact search results',
 				details: '',
 				tags: ['search'],
+				sourceUris: [],
 				updatedAt: '2026-04-20T00:00:00.000Z',
 			},
 		],
@@ -1149,75 +1152,129 @@ test('search tool memory enrichment: timeout, rejection, and ack failure stay of
 	} finally {
 		process.off('unhandledRejection', onUnhandled)
 	}
-
-	vi.clearAllMocks()
-	consoleWarn.mockImplementation(() => {})
-	mockModule.runPackageRetrievers.mockResolvedValue({
-		results: [],
-		warnings: [],
-	})
-	mockModule.loadRelevantMemoriesForTool.mockResolvedValueOnce(memorySummary)
-	mockModule.acknowledgeToolMemories.mockRejectedValueOnce(
-		new Error('ack store unavailable'),
-	)
-	const { handler: ackHandler } = await getSearchRegistration({ user })
-	const ackFailed = await ackHandler({
-		query: 'search docs',
-		conversationId: 'conv-memory-ack-fail',
-	})
-	const ackResult = ackFailed.structuredContent.result as {
-		matches: Array<{ type: string }>
-		memories?: { surfaced: Array<{ id: string }> }
-		warnings: Array<string>
-		phaseTimings?: Record<string, unknown>
-	}
-	expect(ackResult.matches.length).toBeGreaterThan(0)
-	expect(ackResult.memories?.surfaced).toEqual([
-		expect.objectContaining({ id: 'memory-1' }),
-	])
-	expect(ackResult.warnings).toContain(memoryAcknowledgementWarning)
-	expect(ackResult.phaseTimings).toEqual(
-		expect.objectContaining({
-			memoryEnrichmentFailed: false,
-			memoryAcknowledgementFailed: true,
-			memoryAcknowledgementMs: expect.any(Number),
-		}),
-	)
-
-	vi.clearAllMocks()
-	consoleWarn.mockImplementation(() => {})
-	mockModule.runPackageRetrievers.mockResolvedValue({
-		results: [],
-		warnings: [],
-	})
-	mockModule.loadRelevantMemoriesForTool.mockResolvedValueOnce(memorySummary)
-	mockModule.acknowledgeToolMemories.mockImplementation(
-		() => new Promise(() => {}),
-	)
-	const { handler: neverSettlingHandler } = await getSearchRegistration({
-		user,
-	})
-	const neverSettling = await neverSettlingHandler({
-		query: 'search docs',
-		conversationId: 'conv-memory-ack-hang',
-	})
-	const hangResult = neverSettling.structuredContent.result as {
-		memories?: { surfaced: Array<{ id: string }> }
-		warnings: Array<string>
-		phaseTimings?: Record<string, unknown>
-	}
-	expect(hangResult.memories?.surfaced).toEqual([
-		expect.objectContaining({ id: 'memory-1' }),
-	])
-	expect(hangResult.warnings).toContain(memoryAcknowledgementWarning)
-	expect(hangResult.phaseTimings).toEqual(
-		expect.objectContaining({
-			memoryAcknowledgementTimedOut: true,
-			memoryEnrichmentFailed: false,
-			memoryAcknowledgementMs: expect.any(Number),
-		}),
-	)
 }, 10_000)
+
+test('search reserves maxResponseSize for memories and still enriches from memoryContext', async () => {
+	vi.clearAllMocks()
+	consoleWarn.mockImplementation(() => {})
+	const longSummary =
+		'Never send email unless that exact message is requested. '
+			.repeat(40)
+			.trim()
+	const memorySummary = {
+		memories: [
+			{
+				id: 'memory-draft-only',
+				category: 'preference',
+				status: 'active',
+				subject: 'Draft only',
+				summary: longSummary,
+				details: 'Long details must stay out of the reserved memory block.',
+				tags: ['email'],
+				sourceUris: [],
+				updatedAt: '2026-04-20T00:00:00.000Z',
+			},
+		],
+		suppressedCount: 0,
+		retrievalQuery: 'draft an email',
+		retrieverResults: [],
+		retrieverWarnings: [],
+	}
+	mockModule.loadRelevantMemoriesForTool.mockResolvedValue(memorySummary)
+	const user = {
+		userId: 'user-1',
+		email: 'user@example.com',
+		displayName: 'User',
+		username: 'user',
+	}
+	const { handler } = await getSearchRegistration({ user })
+
+	const maxResponseSize = 2_000
+	const tightResponse = await handler({
+		query: 'search docs',
+		conversationId: 'conv-memory-budget-reserve',
+		maxResponseSize,
+	})
+	expect(tightResponse.isError).toBeUndefined()
+	const tightText = tightResponse.content.map((item) => item.text).join('\n')
+	const tightMemoryBlock = tightResponse.content.find((item) =>
+		item.text.includes('## Relevant memories'),
+	)
+	expect(tightMemoryBlock?.text).toContain(longSummary)
+	expect(tightMemoryBlock?.text).not.toContain(
+		'Long details must stay out of the reserved memory block.',
+	)
+	expect(tightText).not.toContain(
+		'Long details must stay out of the reserved memory block.',
+	)
+	const tightResult = tightResponse.structuredContent.result as {
+		matches: Array<{ type: string }>
+		memories?: { surfaced: Array<{ id: string; summary: string }> }
+		telemetry?: { responseTrimmed?: boolean; trimmedMatchCount?: number }
+	}
+	expect(tightResult.memories?.surfaced).toEqual([
+		expect.objectContaining({
+			id: 'memory-draft-only',
+			summary: longSummary,
+		}),
+	])
+	expect(tightResult.telemetry?.responseTrimmed).toBe(true)
+	expect(tightResult.telemetry?.trimmedMatchCount).toBeGreaterThan(0)
+	expect(tightResult.matches).toEqual([])
+
+	vi.clearAllMocks()
+	mockModule.getCapabilityRegistryForContext.mockResolvedValueOnce({
+		capabilityDomains: [
+			{
+				name: 'meta',
+				description: 'Search and registry metadata.',
+			},
+		],
+		capabilitySpecs: {
+			search_docs: {
+				name: 'search_docs',
+				description: 'Search docs capability',
+				domain: 'meta',
+				keywords: [],
+				inputFields: [],
+				requiredInputFields: [],
+				outputFields: [],
+				readOnly: true,
+				idempotent: true,
+				destructive: false,
+				source: 'builtin',
+				inputSchema: { type: 'object', properties: {} },
+				inputTypeDefinition: 'type Input = {}',
+			},
+		},
+	})
+	mockModule.loadRelevantMemoriesForTool.mockResolvedValueOnce(memorySummary)
+	const { handler: whitespaceHandler } = await getSearchRegistration({ user })
+	const whitespaceResponse = await whitespaceHandler({
+		query: '   ',
+		conversationId: 'conv-whitespace-memory-context',
+		memoryContext: { task: 'draft an email' },
+	})
+	expect(whitespaceResponse.isError).toBeUndefined()
+	expect(mockModule.loadRelevantMemoriesForTool).toHaveBeenCalledWith(
+		expect.objectContaining({
+			memoryContext: { task: 'draft an email' },
+			acknowledgeSurfaced: false,
+		}),
+	)
+	const whitespaceText = whitespaceResponse.content
+		.map((item) => item.text)
+		.join('\n')
+	expect(whitespaceText).toContain('## Relevant memories')
+	expect(whitespaceText).toContain(longSummary)
+	expect(
+		(
+			whitespaceResponse.structuredContent.result as {
+				memories?: { surfaced: Array<{ id: string }> }
+			}
+		).memories?.surfaced,
+	).toEqual([expect.objectContaining({ id: 'memory-draft-only' })])
+})
 
 test('search tool domain param: browse, reject unknown, and scope ranked results', async () => {
 	vi.clearAllMocks()
@@ -1252,6 +1309,7 @@ test('search tool domain param: browse, reject unknown, and scope ranked results
 		/Unknown domain "nope"/,
 	)
 	expect(unknownResponse.structuredContent.error).toContain('meta')
+	expect(mockModule.loadRelevantMemoriesForTool).not.toHaveBeenCalled()
 
 	mockModule.listSavedPackagesByUserId.mockResolvedValue(createSavedPackages())
 	const { handler: scopedHandler } = await getSearchRegistration({
@@ -1275,6 +1333,7 @@ test('search tool domain param: browse, reject unknown, and scope ranked results
 	for (const match of scopedResult.matches) {
 		expect(match).toMatchObject({ type: 'capability', domain: 'meta' })
 	}
+	expect(mockModule.loadRelevantMemoriesForTool).toHaveBeenCalled()
 	expect(mockModule.runPackageRetrievers).not.toHaveBeenCalled()
 })
 

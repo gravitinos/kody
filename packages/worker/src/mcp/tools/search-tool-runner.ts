@@ -13,6 +13,7 @@ import {
 	escapeMarkdownText,
 	formatMarkdownInlineCode,
 } from './markdown-safety.ts'
+import { formatSurfacedMemoriesMarkdown } from './memory-tool-context.ts'
 import {
 	defaultMaxResponseSize,
 	defaultSearchLimit,
@@ -438,6 +439,20 @@ export async function runSearchTool(input: {
 				}
 			}
 		}
+		const memorySummary = searchMemories
+			? {
+					memories: searchMemories.surfaced,
+					retrieverResults: searchMemories.retrieverResults,
+					retrieverWarnings: searchMemories.retrieverWarnings ?? [],
+					suppressedCount: searchMemories.suppressedCount,
+					retrievalQuery: searchMemories.retrievalQuery,
+				}
+			: null
+		const memoryContent = formatSurfacedMemoriesMarkdown(memorySummary)
+		const reservedMemoryChars = memoryContent.reduce((total, block) => {
+			if (block.type !== 'text' || !('text' in block)) return total
+			return total + (total > 0 ? 1 : 0) + block.text.length
+		}, 0)
 		const formattingStartMs = performance.now()
 		const { payload: trimmedPayload, serialized } = applyMaxResponseSize(
 			payload,
@@ -453,6 +468,9 @@ export async function runSearchTool(input: {
 				matches: value.matches.slice(0, count),
 			}),
 			(value) => value.matches.length,
+			{
+				reservedChars: reservedMemoryChars > 0 ? reservedMemoryChars + 1 : 0,
+			},
 		)
 		const trimmedMatchCount = Math.max(
 			0,
@@ -522,6 +540,7 @@ export async function runSearchTool(input: {
 					type: 'text',
 					text: truncateSearchText(serialized),
 				},
+				...memoryContent,
 			]),
 			structuredContent: {
 				conversationId,

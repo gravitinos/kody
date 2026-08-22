@@ -37,6 +37,7 @@ const maxTagLength = 80
 const maxTagCount = 16
 const maxSourceUriLength = 2_048
 const maxSourceUriCount = 12
+/** Per-handle hide after a memory is surfaced; unused if the id is never echoed. */
 const defaultSuppressionTtlMs = 30 * 24 * 60 * 60 * 1_000
 /** Offline (no Vectorize): lexical + deterministic ranking over recent rows. */
 const memoryOfflineCandidateLimit = 200
@@ -137,7 +138,9 @@ type SurfaceRelevantMemoriesInput = MemoryOwnerContext & {
 }
 
 /**
- * Marks memories as surfaced for a conversation so later enrichment does not repeat them.
+ * Marks memories as surfaced for one conversation handle so later enrichment
+ * on that same handle does not repeat them. A different handle, including a
+ * server-minted id from another chat, stays visible.
  */
 export async function acknowledgeSurfacedMemories(input: {
 	env: MemoryEnv

@@ -315,6 +315,7 @@ const notifyMemoryContext = {
 }
 
 const watchLoginMemory = {
+	id: 'mem_favorite_bot',
 	subject: 'Favorite bot',
 	summary:
 		"kody-bot is my favorite bot. I'm really interested in what it ships on github",
@@ -537,7 +538,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 						name: 'execute',
 						summary:
 							'Fetch public events with the saved token and keep only real ships',
-						note: 'The module never sees the token. `Authorization` gets a secret placeholder, filled in only for approved hosts. The kody-bot memory already surfaced on search, so execute does not repeat it.',
+						note: 'The module never sees the token. `Authorization` gets a secret placeholder, filled in only for approved hosts. The compact kody-bot memory one-liner can appear again on execute.',
 						inputs: [
 							{
 								name: 'code',
@@ -551,6 +552,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 						resultLang: 'md',
 						result: executeTextReturn({
 							conversationId: askConversationId,
+							memories: [watchLoginMemory],
 							value: [
 								{
 									id: '51284920123',
@@ -769,7 +771,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 					{
 						name: 'search',
 						summary: 'Find the owned package, not a new GitHub walk',
-						note: 'A new conversation, and a new wording. Search still finds the owned package instead of walking GitHub again, and the kody-bot memory surfaces once more.',
+						note: 'A new conversationId and a new wording. Search still finds the owned package instead of walking GitHub again. This is a separate agent, so the kody-bot memory can surface again.',
 						inputs: [
 							{
 								name: 'query',
@@ -789,7 +791,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 					{
 						name: 'execute',
 						summary: 'Invoke the export — no model rewriting the filter',
-						note: 'A static `kody:@` import calls the export as written. No model rewrites the filter. The memory already surfaced on search in this new conversation.',
+						note: 'A static `kody:@` import calls the export as written. No model rewrites the filter. The compact kody-bot memory one-liner can appear again on execute.',
 						inputs: [
 							{
 								name: 'code',
@@ -803,6 +805,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 						resultLang: 'md',
 						result: executeTextReturn({
 							conversationId: phoneConversationId,
+							memories: [watchLoginMemory],
 							value: {
 								shipped: [],
 								message: 'Nothing new.',
@@ -830,7 +833,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 					{
 						name: 'search',
 						summary: 'Find how to notify when the export has news',
-						note: 'Same phone conversation, new task. Search ranks the lifecycle guide, inbound webhooks, and package-owned jobs. The kody-bot memory already surfaced earlier in this chat.',
+						note: 'Same phone conversation, new task. Search ranks the lifecycle guide, inbound webhooks, and package-owned jobs. The compact kody-bot memory one-liner can appear again.',
 						inputs: [
 							{
 								name: 'query',
@@ -845,6 +848,7 @@ export const howKodyWorksTranscriptActs: Array<TranscriptAct> = [
 						result: searchTextReturn({
 							conversationId: phoneConversationId,
 							body: notifySearchMarkdown,
+							memories: [watchLoginMemory],
 						}),
 					},
 					{

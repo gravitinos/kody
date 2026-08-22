@@ -2,19 +2,22 @@
 
 Kody supports two related memory features:
 
-- **conversation-scoped suppression** via **`conversationId`**
+- **compact auto-surface** on `search` and on `execute` when `memoryContext` is
+  present
 - **long-term memory retrieval and persistence** via **`memoryContext`** and
   memory capabilities
 
 ## `conversationId`
 
-**`conversationId`** ties related tool calls together. If you already have one
-from an earlier tool response in the same conversation, pass it back unchanged.
-Otherwise omit the field so Kody can return a server-generated id, then reuse
-that returned id on follow-up calls. Do not make one up yourself.
+**`conversationId`** ties related tool calls together for progressive disclosure
+and other per-thread optimizations. If you already have one from an earlier tool
+response, pass it back unchanged. Otherwise omit the field so Kody can return a
+server-generated id. Do not make one up yourself.
 
-Kody uses this id to avoid surfacing the same long-term memory repeatedly in one
-conversation.
+Memory auto-surface does not require this id and does not hide a memory after
+showing it. The compact one-liner can repeat on later retrievals so it stays in
+context if earlier tool results were dropped. A different conversation, or a
+completely separate agent for the same user, sees the same compact block.
 
 ## `memoryContext`
 
@@ -29,17 +32,24 @@ Keep it brief and factual. Good fields include:
 - important entities
 - important constraints
 
+`search` also retrieves from the query string when `memoryContext` is omitted.
+Domain-scoped search still does this. `execute` retrieves when `memoryContext`
+is present.
+
 ## Automatic memory surfacing
 
-When a signed-in agent includes **`memoryContext`**, Kody may return a small
-number of relevant not-yet-surfaced memories alongside the normal tool result.
+When retrieval runs, Kody may return the top one or two relevant active
+memories, including ones surfaced earlier, in the tool text (as
+`## Relevant memories`) and in structured content. Auto-surface is compact:
+**subject**, **summary**, and **id** (structured). Details stay behind
+`meta_memory_get`.
 
 That retrieval is:
 
-- **conservative** — only a few memories
-- **task-based** — driven by `memoryContext`
-- **conversation-aware** — repeated memories are suppressed within the same
-  `conversationId`
+- **conservative** — the top one or two ranked active memories
+- **task-based** — driven by `memoryContext` and, for `search`, the query
+- **cheap to repeat** — subject and summary only; the same one-liners may appear
+  again so a compacted context still has the rule
 
 ## Verify-first rule for memory writes
 

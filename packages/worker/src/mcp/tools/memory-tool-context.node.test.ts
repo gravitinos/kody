@@ -18,9 +18,11 @@ vi.mock('#worker/package-retrievers/service.ts', () => ({
 		mockModule.runPackageRetrievers(...args),
 }))
 
-const { loadRelevantMemoriesForTool } = await import('./memory-tool-context.ts')
-const { formatSurfacedMemoriesMarkdown } =
-	await import('./memory-tool-context.ts')
+const {
+	automaticMemorySingleListRankOneScore,
+	formatSurfacedMemoriesMarkdown,
+	loadRelevantMemoriesForTool,
+} = await import('./memory-tool-context.ts')
 
 function setupMemoryContextMocks() {
 	mockModule.searchMemoryRecords.mockReset()
@@ -148,15 +150,21 @@ test('memory tool context surfaces retrievers, filters weak matches, fails on re
 		matches: [
 			{
 				...baseMemory,
-				id: 'active-strong',
+				id: 'active-rank-one',
 				status: 'active',
-				score: 0.03,
+				score: automaticMemorySingleListRankOneScore,
 			},
 			{
 				...baseMemory,
-				id: 'active-noise',
+				id: 'active-rank-two',
 				status: 'active',
-				score: 0.0164,
+				score: 1 / 62,
+			},
+			{
+				...baseMemory,
+				id: 'active-rank-three',
+				status: 'active',
+				score: 1 / 63,
 			},
 			{
 				...baseMemory,
@@ -180,8 +188,31 @@ test('memory tool context surfaces retrievers, filters weak matches, fails on re
 		memoryContext: { query: 'ranked search' },
 		acknowledgeSurfaced: false,
 	})
-	expect(filtered?.memories.map((memory) => memory.id)).toEqual([
-		'active-strong',
+	expect(filtered?.memories).toEqual([
+		{
+			id: 'active-rank-one',
+			subject: 'Search workflow',
+			summary: 'Use ranked search.',
+		},
+		{
+			id: 'active-rank-two',
+			subject: 'Search workflow',
+			summary: 'Use ranked search.',
+		},
 	])
 	expect(mockModule.acknowledgeSurfacedMemories).not.toHaveBeenCalled()
+
+	const [compactContent] = formatSurfacedMemoriesMarkdown(filtered)
+	expect(compactContent?.text).toBe(
+		[
+			'## Relevant memories',
+			'',
+			'- **Search workflow** — Use ranked search.',
+			'- **Search workflow** — Use ranked search.',
+		].join('\n'),
+	)
+	expect(compactContent?.text).not.toContain('Category')
+	expect(compactContent?.text).not.toContain('Tags')
+	expect(compactContent?.text).not.toContain('Updated')
+	expect(compactContent?.text).not.toContain('active-rank-one')
 })

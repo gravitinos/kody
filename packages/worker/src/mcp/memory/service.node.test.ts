@@ -505,6 +505,16 @@ test('memory surfacing suppresses repeated memories per conversation', async () 
 	expect(second.memories).toHaveLength(0)
 	expect(second.suppressedCount).toBeGreaterThanOrEqual(1)
 
+	const otherConversation = await surfaceRelevantMemories({
+		env: runtimeEnv,
+		userId: 'user-123',
+		query: 'deployment preference after 4pm',
+		conversationId: 'conv-other-agent',
+	})
+
+	expect(otherConversation.memories).toHaveLength(1)
+	expect(otherConversation.suppressedCount).toBe(0)
+
 	const search = await searchMemoryRecords({
 		env: runtimeEnv,
 		userId: 'user-123',
